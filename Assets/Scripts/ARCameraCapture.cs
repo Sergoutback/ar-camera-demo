@@ -1,3 +1,4 @@
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
@@ -116,6 +117,7 @@ public class ARCameraCapture : MonoBehaviour
     public void CapturePhoto()
     {
         Debug.Log("CapturePhoto() started");
+        StartCoroutine(TakeScreenshot());
 
         Camera[] cameras = Camera.allCameras;
         foreach (Camera cam in cameras)
@@ -129,6 +131,7 @@ public class ARCameraCapture : MonoBehaviour
         StartCoroutine(TakeScreenshot());
 
         Debug.Log("CapturePhoto() finished");
+        
     }
 
 
@@ -137,42 +140,28 @@ public class ARCameraCapture : MonoBehaviour
         Debug.Log("TakeScreenshot() started");
         yield return new WaitForEndOfFrame();
 
-        if (webcamTexture == null)
+        if (webcamTexture == null || !webcamTexture.isPlaying)
         {
-            Debug.LogError("webcamTexture is null! Camera might not be started.");
-            yield break;
-        }
-
-        if (!webcamTexture.isPlaying)
-        {
-            Debug.LogError("webcamTexture is not playing! Camera is stopped.");
+            Debug.LogError("Camera is not available or not playing!");
             yield break;
         }
 
         Texture2D screenshot = new Texture2D(webcamTexture.width, webcamTexture.height, TextureFormat.RGB24, false);
         screenshot.SetPixels32(RotateTexture(webcamTexture.GetPixels32(), webcamTexture.width, webcamTexture.height, webcamTexture.videoRotationAngle));
-
         screenshot.Apply();
-        
-        if (webcamTexture.videoVerticallyMirrored)
-        {
-            previewImage.uvRect = new Rect(0, 1, 1, -1);
-        }
-        else
-        {
-            previewImage.uvRect = new Rect(0, 0, 1, 1);
-        }
 
         if (previewImage != null)
         {
             previewImage.texture = screenshot;
             previewImage.enabled = true;
-            Debug.Log("Preview image updated");
         }
 
-        lastPhoto = screenshot;
-        Debug.Log("TakeScreenshot() finished");
+        lastPhoto = screenshot; 
+        Debug.Log("Screenshot captured!");
+
+        SavePhotoToStorage();
     }
+
     IEnumerator MonitorCamera()
     {
         while (true)
@@ -253,5 +242,20 @@ public class ARCameraCapture : MonoBehaviour
         }
 
         return rotatedPixels;
+    }
+    public void SavePhotoToStorage()
+    {
+        if (lastPhoto == null)
+        {
+            Debug.LogError("No photo to save! Make sure TakeScreenshot() is called first.");
+            return;
+        }
+
+        string filename = "AR_Photo_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
+        string path = Path.Combine(Application.persistentDataPath, filename);
+
+        byte[] imageBytes = lastPhoto.EncodeToPNG();
+        File.WriteAllBytes(path, imageBytes);
+        Debug.Log("Photo saved at: " + path);
     }
 }
