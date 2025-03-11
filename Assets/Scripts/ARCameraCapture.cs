@@ -12,8 +12,10 @@ public class ARCameraCapture : MonoBehaviour
 
     void Start()
     {
-        RequestPermissions();
+        //RequestPermissions();
         StartCoroutine(InitializeAfterPermissions());
+        StartCoroutine(MonitorCamera());
+        Screen.sleepTimeout = SleepTimeout.NeverSleep;
     }
 
     void RequestPermissions()
@@ -106,17 +108,32 @@ public class ARCameraCapture : MonoBehaviour
         {
             cameraPreview.texture = webcamTexture;
             cameraPreview.enabled = true;
-            Debug.Log("Camera preview started.");
+            Debug.Log("cameraPreview.enabled = " + cameraPreview.enabled);
         }
     }
 
     public void CapturePhoto()
     {
+        Debug.Log("CapturePhoto() started");
+
+        Camera[] cameras = Camera.allCameras;
+        foreach (Camera cam in cameras)
+        {
+            Debug.Log("Active Camera: " + cam.name + " Depth: " + cam.depth);
+        }
+
+        Debug.Log("WebCamTexture isPlaying: " + (webcamTexture != null ? webcamTexture.isPlaying.ToString() : "null"));
+        Debug.Log("cameraPreview.enabled = " + cameraPreview.enabled);
+
         StartCoroutine(TakeScreenshot());
+
+        Debug.Log("CapturePhoto() finished");
     }
+
 
     private IEnumerator TakeScreenshot()
     {
+        Debug.Log("TakeScreenshot() started");
         yield return new WaitForEndOfFrame();
 
         if (webcamTexture == null)
@@ -131,17 +148,39 @@ public class ARCameraCapture : MonoBehaviour
             yield break;
         }
 
-        Texture2D screenshot = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
-        screenshot.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+        Texture2D screenshot = new Texture2D(webcamTexture.width, webcamTexture.height, TextureFormat.RGB24, false);
+        screenshot.SetPixels(webcamTexture.GetPixels());
         screenshot.Apply();
 
         if (previewImage != null)
         {
             previewImage.texture = screenshot;
             previewImage.enabled = true;
-            Debug.Log("Photo captured successfully.");
+            Debug.Log("Preview image updated");
         }
 
         lastPhoto = screenshot;
+        Debug.Log("TakeScreenshot() finished");
     }
+    IEnumerator MonitorCamera()
+    {
+        while (true)
+        {
+            if (webcamTexture != null && !webcamTexture.isPlaying)
+            {
+                Debug.LogWarning("Camera stopped! Restarting...");
+            
+                webcamTexture.Stop();  // Остановить перед перезапуском
+                yield return new WaitForSeconds(1);
+
+                if (!webcamTexture.isPlaying)  // Проверяем повторно
+                {
+                    Debug.Log("Restarting WebCamTexture...");
+                    StartCoroutine(InitializeCameraWithDelay());
+                }
+            }
+            yield return new WaitForSeconds(2);
+        }
+    }
+
 }
