@@ -12,7 +12,7 @@ public class ARCameraCapture : MonoBehaviour
 
     void Start()
     {
-        //RequestPermissions();
+        RequestPermissions();
         StartCoroutine(InitializeAfterPermissions());
         StartCoroutine(MonitorCamera());
         Screen.sleepTimeout = SleepTimeout.NeverSleep;
@@ -89,6 +89,7 @@ public class ARCameraCapture : MonoBehaviour
 
         webcamTexture = new WebCamTexture(cameraName);
         webcamTexture.Play();
+        AdjustCameraTexture();
 
         int attempts = 0;
         while (webcamTexture.width <= 16 && attempts < 10)
@@ -149,8 +150,18 @@ public class ARCameraCapture : MonoBehaviour
         }
 
         Texture2D screenshot = new Texture2D(webcamTexture.width, webcamTexture.height, TextureFormat.RGB24, false);
-        screenshot.SetPixels(webcamTexture.GetPixels());
+        screenshot.SetPixels32(RotateTexture(webcamTexture.GetPixels32(), webcamTexture.width, webcamTexture.height, webcamTexture.videoRotationAngle));
+
         screenshot.Apply();
+        
+        if (webcamTexture.videoVerticallyMirrored)
+        {
+            previewImage.uvRect = new Rect(0, 1, 1, -1);
+        }
+        else
+        {
+            previewImage.uvRect = new Rect(0, 0, 1, 1);
+        }
 
         if (previewImage != null)
         {
@@ -170,10 +181,10 @@ public class ARCameraCapture : MonoBehaviour
             {
                 Debug.LogWarning("Camera stopped! Restarting...");
             
-                webcamTexture.Stop();  // Остановить перед перезапуском
+                webcamTexture.Stop();
                 yield return new WaitForSeconds(1);
 
-                if (!webcamTexture.isPlaying)  // Проверяем повторно
+                if (!webcamTexture.isPlaying)
                 {
                     Debug.Log("Restarting WebCamTexture...");
                     StartCoroutine(InitializeCameraWithDelay());
@@ -182,5 +193,65 @@ public class ARCameraCapture : MonoBehaviour
             yield return new WaitForSeconds(2);
         }
     }
+    void AdjustCameraTexture()
+    {
+        if (cameraPreview != null && webcamTexture != null)
+        {
+            cameraPreview.texture = webcamTexture;
+        
+            cameraPreview.rectTransform.localEulerAngles = new Vector3(0, 0, -webcamTexture.videoRotationAngle);
+        
+            if (webcamTexture.videoVerticallyMirrored)
+            {
+                cameraPreview.uvRect = new Rect(0, 1, 1, -1);
+            }
+            else
+            {
+                cameraPreview.uvRect = new Rect(0, 0, 1, 1);
+            }
 
+            cameraPreview.enabled = true;
+        }
+    }
+    private Color32[] RotateTexture(Color32[] pixels, int width, int height, int angle)
+    {
+        Color32[] rotatedPixels = new Color32[pixels.Length];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int newX = x;
+                int newY = y;
+                int index = y * width + x;
+
+                switch (angle)
+                {
+                    case 90:
+                        newX = height - 1 - y;
+                        newY = x;
+                        break;
+                    case 180:
+                        newX = width - 1 - x;
+                        newY = height - 1 - y;
+                        break;
+                    case 270:
+                        newX = y;
+                        newY = width - 1 - x;
+                        break;
+                    default:
+                        rotatedPixels[index] = pixels[index];
+                        continue;
+                }
+
+                if (newX >= 0 && newX < width && newY >= 0 && newY < height)
+                {
+                    int newIndex = newY * width + newX;
+                    rotatedPixels[newIndex] = pixels[index];
+                }
+            }
+        }
+
+        return rotatedPixels;
+    }
 }
