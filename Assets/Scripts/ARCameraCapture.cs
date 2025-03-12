@@ -11,6 +11,7 @@ public class ARCameraCapture : MonoBehaviour
     public GameObject previewPrefab;
     public Transform previewContainer;
     public Button galleryButton;
+    public GameObject popup;
     private WebCamTexture webcamTexture;
     private List<Texture2D> capturedPhotos = new List<Texture2D>();
     private List<GameObject> previewImages = new List<GameObject>();
@@ -143,6 +144,17 @@ public class ARCameraCapture : MonoBehaviour
 
     private void OpenGallery()
     {
+#if UNITY_EDITOR
         Application.OpenURL("file://" + savedPhotosPath);
+#elif UNITY_ANDROID
+    popup.SetActive(true);
+    StartCoroutine(DisablePopupAfterDelay(3f));
+#endif
+
+        IEnumerator DisablePopupAfterDelay(float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            popup.SetActive(false);
+        }
     }
 }
