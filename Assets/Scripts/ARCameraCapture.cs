@@ -12,10 +12,12 @@ public class ARCameraCapture : MonoBehaviour
     public Transform previewContainer;
     public Button galleryButton;
     public GameObject popup;
+
     private WebCamTexture webcamTexture;
     private List<Texture2D> capturedPhotos = new List<Texture2D>();
     private List<GameObject> previewImages = new List<GameObject>();
     private string savedPhotosPath;
+    private int photoCounter = 0;
 
     void Start()
     {
@@ -57,14 +59,23 @@ public class ARCameraCapture : MonoBehaviour
         if (devices.Length == 0) yield break;
 
         string cameraName = devices[0].name;
-        foreach (var device in devices) { if (!device.isFrontFacing) cameraName = device.name; }
+        foreach (var device in devices)
+        {
+            if (!device.isFrontFacing)
+            {
+                cameraName = device.name;
+                break;
+            }
+        }
 
-        webcamTexture = new WebCamTexture(cameraName);
+        webcamTexture = new WebCamTexture(cameraName, 1280, 720); // Set high resolution
         webcamTexture.Play();
 
         yield return new WaitUntil(() => webcamTexture.width > 16);
         cameraPreview.texture = webcamTexture;
         cameraPreview.enabled = true;
+
+        Debug.Log($"Camera started: {cameraName}, Resolution: {webcamTexture.width}x{webcamTexture.height}");
     }
 
     IEnumerator MonitorCamera()
@@ -94,13 +105,24 @@ public class ARCameraCapture : MonoBehaviour
         screenshot.SetPixels32(webcamTexture.GetPixels32());
         screenshot.Apply();
 
-        string filename = "Photo_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
-        File.WriteAllBytes(Path.Combine(savedPhotosPath, filename), screenshot.EncodeToPNG());
+        if (Screen.orientation == ScreenOrientation.Portrait || Screen.orientation == ScreenOrientation.PortraitUpsideDown)
+        {
+            screenshot = RotateTexture90(screenshot);
+        }
 
+        string filename = $"Photo_{photoCounter:D2}.png";
+        string path = Path.Combine(savedPhotosPath, filename);
+        File.WriteAllBytes(path, screenshot.EncodeToPNG());
+
+        photoCounter++;
         AddPhotoToPreview(screenshot);
 
-        if (capturedPhotos.Count >= 8) StartCoroutine(HandleFullPreview());
+        if (capturedPhotos.Count >= 8)
+        {
+            StartCoroutine(HandleFullPreview());
+        }
     }
+
 
     private void AddPhotoToPreview(Texture2D photo)
     {
@@ -124,7 +146,10 @@ public class ARCameraCapture : MonoBehaviour
 
         for (int i = 0; i < 8; i++)
         {
-            finalTexture.SetPixels((i % 4) * w, (i / 4) * h, w, h, capturedPhotos[i].GetPixels());
+            int row = i / 4;
+            int col = i % 4;
+            int flippedRow = 1 - row; // flip vertically
+            finalTexture.SetPixels(col * w, flippedRow * h, w, h, capturedPhotos[i].GetPixels());
         }
         finalTexture.Apply();
 
@@ -134,6 +159,7 @@ public class ARCameraCapture : MonoBehaviour
 
         galleryButton.image.sprite = Sprite.Create(finalTexture, new Rect(0, 0, finalTexture.width, finalTexture.height), new Vector2(0.5f, 0.5f));
     }
+
 
     private void ClearPreviews()
     {
@@ -147,14 +173,32 @@ public class ARCameraCapture : MonoBehaviour
 #if UNITY_EDITOR
         Application.OpenURL("file://" + savedPhotosPath);
 #elif UNITY_ANDROID
-    popup.SetActive(true);
-    StartCoroutine(DisablePopupAfterDelay(3f));
+        popup.SetActive(true);
+        StartCoroutine(DisablePopupAfterDelay(3f));
 #endif
-
-        IEnumerator DisablePopupAfterDelay(float delay)
-        {
-            yield return new WaitForSeconds(delay);
-            popup.SetActive(false);
-        }
     }
+
+    private IEnumerator DisablePopupAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        popup.SetActive(false);
+    }
+    private Texture2D RotateTexture90(Texture2D original)
+    {
+        int width = original.width;
+        int height = original.height;
+        Texture2D rotated = new Texture2D(height, width);
+
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                rotated.SetPixel(y, width - x - 1, original.GetPixel(x, y));
+            }
+        }
+
+        rotated.Apply();
+        return rotated;
+    }
+
 }
