@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
@@ -110,9 +111,15 @@ public class ARCameraCapture : MonoBehaviour
             screenshot = RotateTexture90(screenshot);
         }
 
-        string filename = $"Photo_{photoCounter:D2}.png";
-        string path = Path.Combine(savedPhotosPath, filename);
-        File.WriteAllBytes(path, screenshot.EncodeToPNG());
+        byte[] imageBytes = screenshot.EncodeToJPG(95);
+        string filename = $"Photo_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+        string tempPath = Path.Combine(Application.temporaryCachePath, filename);
+        File.WriteAllBytes(tempPath, imageBytes);
+
+        NativeGallery.SaveImageToGallery(tempPath, "ARCameraDemo", filename, (success, path) =>
+        {
+            Debug.Log($"[NativeGallery] Saved: {success}, Path: {path}");
+        });
 
         photoCounter++;
         AddPhotoToPreview(screenshot);
@@ -122,6 +129,8 @@ public class ARCameraCapture : MonoBehaviour
             StartCoroutine(HandleFullPreview());
         }
     }
+
+
 
 
     private void AddPhotoToPreview(Texture2D photo)
@@ -153,12 +162,19 @@ public class ARCameraCapture : MonoBehaviour
         }
         finalTexture.Apply();
 
-        string filename = "Combined_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
-        string path = Path.Combine(savedPhotosPath, filename);
-        File.WriteAllBytes(path, finalTexture.EncodeToPNG());
+        string filename = "Combined_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".jpg";
+        string tempPath = Path.Combine(Application.temporaryCachePath, filename);
+        File.WriteAllBytes(tempPath, finalTexture.EncodeToJPG(95));
+
+        NativeGallery.SaveImageToGallery(tempPath, "ARCameraDemo", filename, (success, path) =>
+        {
+            Debug.Log($"[NativeGallery] Combined image saved: {success}, Path: {path}");
+        });
 
         galleryButton.image.sprite = Sprite.Create(finalTexture, new Rect(0, 0, finalTexture.width, finalTexture.height), new Vector2(0.5f, 0.5f));
     }
+
+
 
 
     private void ClearPreviews()
