@@ -11,7 +11,13 @@
     <application android:requestLegacyExternalStorage="true">
         <activity android:name="com.unity3d.player.UnityPlayerActivity"
                   android:configChanges="keyboardHidden|orientation|screenSize"
-                  android:screenOrientation="portrait"/>
+                  android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>
+
