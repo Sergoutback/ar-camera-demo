@@ -5,6 +5,7 @@ using UnityEngine.UI;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.Android;
+using System.IO.Compression;
 
 public class ARCameraCapture : MonoBehaviour
 {
@@ -12,6 +13,7 @@ public class ARCameraCapture : MonoBehaviour
     public GameObject previewPrefab;
     public Transform previewContainer;
     public Button galleryButton;
+    public Button exportZipButton;
     public GameObject popup;
 
     private WebCamTexture webcamTexture;
@@ -20,6 +22,17 @@ public class ARCameraCapture : MonoBehaviour
     private string savedPhotosPath;
     private int photoCounter = 0;
     private string lastSavedImagePath;
+    
+    private string currentSessionId;
+    private float currentLatitude;
+    private float currentLongitude;
+
+    private Quaternion baseGyroRotation;
+    private bool baseRotationSet = false;
+    
+    private List<PhotoMetadata> sessionPhotos = new List<PhotoMetadata>();
+
+
 
 
     void Start()
@@ -36,8 +49,45 @@ public class ARCameraCapture : MonoBehaviour
             StartCoroutine(DisablePopupAfterDelay(3f));
             OpenSystemGallery();
         });
+        
+        exportZipButton.onClick.AddListener(OnExportSessionZipButton);
+        
+        currentSessionId = Guid.NewGuid().ToString();
+        Input.gyro.enabled = true;
+        Input.compass.enabled = true;
+        StartCoroutine(UpdateLocation());
+
 
     }
+
+    private IEnumerator UpdateLocation()
+    {
+        if (!Input.location.isEnabledByUser)
+        {
+            Debug.LogWarning("Location not enabled.");
+            yield break;
+        }
+
+        Input.location.Start();
+
+        int maxWait = 10;
+        while (Input.location.status == LocationServiceStatus.Initializing && maxWait > 0)
+        {
+            yield return new WaitForSeconds(1);
+            maxWait--;
+        }
+
+        if (Input.location.status == LocationServiceStatus.Running)
+        {
+            currentLatitude = Input.location.lastData.latitude;
+            currentLongitude = Input.location.lastData.longitude;
+        }
+        else
+        {
+            Debug.LogWarning("Unable to determine device location.");
+        }
+    }
+
 
     void RequestPermissions()
     {
@@ -102,8 +152,14 @@ public class ARCameraCapture : MonoBehaviour
 
     public void CapturePhoto()
     {
+        if (capturedPhotos.Count == 0)
+        {
+            StartNewSession(); // new session before first photo
+        }
+
         StartCoroutine(TakeScreenshot());
     }
+
 
     private IEnumerator TakeScreenshot()
     {
@@ -124,6 +180,52 @@ public class ARCameraCapture : MonoBehaviour
         string tempPath = Path.Combine(Application.temporaryCachePath, filename);
         File.WriteAllBytes(tempPath, imageBytes);
 
+        Quaternion currentGyro = Input.gyro.attitude;
+        Quaternion relativeGyro = Quaternion.identity;
+
+        if (!baseRotationSet)
+        {
+            baseGyroRotation = currentGyro;
+            baseRotationSet = true;
+        }
+        else
+        {
+            relativeGyro = Quaternion.Inverse(baseGyroRotation) * currentGyro;
+        }
+        
+        Vector3 relativeEuler = relativeGyro.eulerAngles;
+        
+        Vector3 gyroEuler = currentGyro.eulerAngles;
+
+        PhotoMetadata metadata = new PhotoMetadata
+        {
+            photoId = Guid.NewGuid().ToString(),
+            sessionId = currentSessionId,
+            timestamp = DateTime.Now.ToString("o"),
+            path = tempPath,
+            width = screenshot.width,
+            height = screenshot.height,
+            quality = 95,
+            gyroRotationRate = Input.gyro.rotationRateUnbiased,
+            gyroAttitude = currentGyro,
+            relativeGyroAttitude = relativeGyro,
+            relativeEulerAngles = relativeEuler,
+            gyroEulerAngles = gyroEuler,
+            latitude = currentLatitude,
+            longitude = currentLongitude,
+        };
+        
+        sessionPhotos.Add(metadata);
+
+        string json = JsonUtility.ToJson(metadata, true);
+        string jsonPath = Path.ChangeExtension(tempPath, ".json");
+        File.WriteAllText(jsonPath, json);
+
+        AndroidMediaScanner.ScanFile(jsonPath);
+        
+        Debug.Log($"[Meta] JSON saved to: {jsonPath}");
+
+        
         NativeGallery.SaveImageToGallery(tempPath, "ARCameraDemo", filename, (success, path) =>
         {
             Debug.Log($"[NativeGallery] Saved: {success}, Path: {path}");
@@ -184,8 +286,16 @@ public class ARCameraCapture : MonoBehaviour
 
 
         galleryButton.image.sprite = Sprite.Create(finalTexture, new Rect(0, 0, finalTexture.width, finalTexture.height), new Vector2(0.5f, 0.5f));
+        SaveSessionMetadata();
     }
 
+    private void SaveSessionMetadata()
+    {
+        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
+        string sessionFile = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.json");
+        File.WriteAllText(sessionFile, sessionJson);
+        Debug.Log($"[Meta] Session metadata saved to: {sessionFile}");
+    }
 
 
 
@@ -292,8 +402,56 @@ public class ARCameraCapture : MonoBehaviour
         Debug.Log("[ARCamera] Gallery open only works on Android device.");
 #endif
     }
+    
+    public void StartNewSession()
+    {
+        baseRotationSet = false;
+        baseGyroRotation = Quaternion.identity;
+        currentSessionId = Guid.NewGuid().ToString();
+        sessionPhotos.Clear();
 
+        Debug.Log("[Session] New session started: " + currentSessionId);
+    }
+    
+    private void ExportSessionToZip()
+    {
+        string exportDir = Path.Combine(Application.temporaryCachePath, $"Session_{currentSessionId}_Export");
+        Directory.CreateDirectory(exportDir);
 
+        // Копируем файлы
+        foreach (var meta in sessionPhotos)
+        {
+            if (File.Exists(meta.path))
+            {
+                File.Copy(meta.path, Path.Combine(exportDir, Path.GetFileName(meta.path)), true);
+            }
+
+            string jsonPath = Path.ChangeExtension(meta.path, ".json");
+            if (File.Exists(jsonPath))
+            {
+                File.Copy(jsonPath, Path.Combine(exportDir, Path.GetFileName(jsonPath)), true);
+            }
+        }
+
+        // Добавляем Session metadata JSON
+        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
+        string sessionMetaPath = Path.Combine(exportDir, $"Session_{currentSessionId}.json");
+        File.WriteAllText(sessionMetaPath, sessionJson);
+
+        // Создаём zip
+        string zipPath = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.zip");
+        if (File.Exists(zipPath)) File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(exportDir, zipPath);
+
+        Debug.Log($"[Export] ZIP created at: {zipPath}");
+
+        AndroidMediaScanner.ScanFile(zipPath);
+    }
+    
+    public void OnExportSessionZipButton()
+    {
+        ExportSessionToZip();
+    }
 
 
 }
