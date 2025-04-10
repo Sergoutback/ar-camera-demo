@@ -16,6 +16,10 @@ public class PhotoStitcher : MonoBehaviour
     public TextAsset[] jsonFiles;
     private List<PhotoData> photoDataList = new List<PhotoData>();
 
+    private const int GRID_ROWS = 2;
+    private const int GRID_COLS = 4;
+    private const float BLUE_THRESHOLD = 0.6f;
+
     [ContextMenu("Stitch Photos")]
     void RunFromContextMenu()
     {
@@ -33,125 +37,163 @@ public class PhotoStitcher : MonoBehaviour
         }
     }
 
+    bool IsBlue(Color c)
+    {
+        return c.b > BLUE_THRESHOLD && c.b > c.r * 2 && c.b > c.g * 2;
+    }
+
     void StitchPhotos()
     {
-        int count = Mathf.Min(8, photos.Length);
         int singleWidth = photos[0].width;
         int singleHeight = photos[0].height;
-
-        // Create a canvas with room for transformations
-        float margin = 0.2f; // 20% reserve for transformations
-        int canvasWidth = Mathf.RoundToInt(singleWidth * 4 * (1 + margin));
-        int canvasHeight = Mathf.RoundToInt(singleHeight * 2 * (1 + margin));
         
-        Texture2D canvas = new Texture2D(canvasWidth, canvasHeight);
-        // Fill with transparent color
-        Color[] clearColors = new Color[canvasWidth * canvasHeight];
-        for (int i = 0; i < clearColors.Length; i++)
-            clearColors[i] = new Color(0, 0, 0, 0);
-        canvas.SetPixels(clearColors);
+        // Create canvas with exact grid size
+        int canvasWidth = singleWidth * GRID_COLS;
+        int canvasHeight = singleHeight * GRID_ROWS;
 
-        // We place photos taking into account the angles of rotation
-        for (int row = 0; row < 2; row++)
+        Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
+        Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
+
+        // Fill with white
+        for (int i = 0; i < canvasPixels.Length; i++)
         {
-            for (int col = 0; col < 4; col++)
+            canvasPixels[i] = Color.white;
+        }
+
+        // First align and copy photos
+        for (int row = 0; row < GRID_ROWS; row++)
+        {
+            for (int col = 0; col < GRID_COLS; col++)
             {
-                int photoIndex = row * 4 + col;
-                if (photoIndex >= count) continue;
+                int index = row * GRID_COLS + col;
+                if (index >= photos.Length) continue;
 
-                // Basic position of the photo without transformation
-                int baseX = col * singleWidth;
-                int baseY = (1 - row) * singleHeight; // Top row with row=0
-
-                // Getting rotation angles from JSON
-                Vector3 angles = photoDataList[photoIndex].relativeEulerAngles;
+                Texture2D aligned = AlignPhoto(photos[index], photoDataList[index].relativeEulerAngles.z);
                 
-                // Applying Angle Based Transformation
-                Matrix4x4 rotationMatrix = Matrix4x4.TRS(
-                    Vector3.zero,
-                    Quaternion.Euler(angles),
-                    Vector3.one
-                );
-
-                // Copy and transform photos
-                CopyTransformedPhotoToCanvas(
-                    photos[photoIndex],
+                CopyPhotoToGrid(
+                    aligned,
                     canvas,
-                    baseX,
-                    baseY,
-                    singleWidth,
-                    singleHeight,
-                    rotationMatrix
+                    canvasPixels,
+                    col * singleWidth,
+                    (GRID_ROWS - 1 - row) * singleHeight
                 );
             }
         }
 
+        // Draw perfect grid lines
+        DrawGridLines(canvasPixels, canvasWidth, canvasHeight, singleWidth, singleHeight);
+
+        canvas.SetPixels(canvasPixels);
         canvas.Apply();
 
-        byte[] jpgData = ImageConversion.EncodeToJPG(canvas);
+        byte[] jpgData = ImageConversion.EncodeToJPG(canvas, 95);
         string filePath = Application.dataPath + "/StitchedGrid.jpg";
         System.IO.File.WriteAllBytes(filePath, jpgData);
-        Debug.Log("Сохранено JPG полотно: " + filePath);
+        Debug.Log("Saved stitched image: " + filePath);
     }
 
-    void CopyTransformedPhotoToCanvas(
-        Texture2D photo,
-        Texture2D canvas,
-        int baseX,
-        int baseY,
-        int width,
-        int height,
-        Matrix4x4 transform
-    )
+    Texture2D AlignPhoto(Texture2D photo, float angle)
     {
-        // Finding the corners of a photograph
-        Vector3[] corners = new Vector3[]
-        {
-            new Vector3(0, 0, 0),            // Bottom left
-            new Vector3(width, 0, 0),        // Bottom right
-            new Vector3(width, height, 0),   // Top right
-            new Vector3(0, height, 0)        // Top left
-        };
+        // Create new texture for aligned photo
+        Texture2D aligned = new Texture2D(photo.width, photo.height, TextureFormat.RGBA32, false);
+        Color[] alignedPixels = new Color[photo.width * photo.height];
+        Color[] photoPixels = photo.GetPixels();
 
-        // Transforming corners
-        for (int i = 0; i < corners.Length; i++)
+        // Calculate rotation
+        float angleRad = -angle * Mathf.Deg2Rad; // Negative because we're correcting the rotation
+        float cos = Mathf.Cos(angleRad);
+        float sin = Mathf.Sin(angleRad);
+        Vector2 center = new Vector2(photo.width/2, photo.height/2);
+
+        // Rotate each pixel
+        for (int y = 0; y < photo.height; y++)
         {
-            corners[i] = transform.MultiplyPoint(corners[i]);
+            for (int x = 0; x < photo.width; x++)
+            {
+                Vector2 pos = new Vector2(x, y);
+                Vector2 centered = pos - center;
+                Vector2 rotated = new Vector2(
+                    centered.x * cos - centered.y * sin,
+                    centered.x * sin + centered.y * cos
+                ) + center;
+
+                int srcX = Mathf.RoundToInt(rotated.x);
+                int srcY = Mathf.RoundToInt(rotated.y);
+
+                if (srcX >= 0 && srcX < photo.width && srcY >= 0 && srcY < photo.height)
+                {
+                    alignedPixels[y * photo.width + x] = photoPixels[srcY * photo.width + srcX];
+                }
+                else
+                {
+                    alignedPixels[y * photo.width + x] = Color.white;
+                }
+            }
         }
 
-        // Finding the boundaries of the transformed image
-        float minX = float.MaxValue, maxX = float.MinValue;
-        float minY = float.MaxValue, maxY = float.MinValue;
+        aligned.SetPixels(alignedPixels);
+        aligned.Apply();
+        return aligned;
+    }
+
+    void CopyPhotoToGrid(Texture2D photo, Texture2D canvas, Color[] canvasPixels, int baseX, int baseY)
+    {
+        Color[] photoPixels = photo.GetPixels();
         
-        foreach (Vector3 corner in corners)
+        for (int y = 0; y < photo.height; y++)
         {
-            minX = Mathf.Min(minX, corner.x);
-            maxX = Mathf.Max(maxX, corner.x);
-            minY = Mathf.Min(minY, corner.y);
-            maxY = Mathf.Max(maxY, corner.y);
+            for (int x = 0; x < photo.width; x++)
+            {
+                Color color = photoPixels[y * photo.width + x];
+                
+                int destX = x + baseX;
+                int destY = y + baseY;
+                
+                if (destX >= 0 && destX < canvas.width && 
+                    destY >= 0 && destY < canvas.height)
+                {
+                    canvasPixels[destY * canvas.width + destX] = color;
+                }
+            }
+        }
+    }
+
+    void DrawGridLines(Color[] pixels, int width, int height, int cellWidth, int cellHeight)
+    {
+        Color blue = new Color(0, 0, 1, 1);
+        int lineWidth = 2;
+
+        // Draw vertical lines
+        for (int col = 0; col <= GRID_COLS; col++)
+        {
+            int x = col * cellWidth;
+            if (col > 0) x -= 1;
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int i = 0; i < lineWidth; i++)
+                {
+                    if (x + i >= 0 && x + i < width)
+                    {
+                        pixels[y * width + (x + i)] = blue;
+                    }
+                }
+            }
         }
 
-        // Copy pixels with transformation
-        for (int y = 0; y < height; y++)
+        // Draw horizontal lines
+        for (int row = 0; row <= GRID_ROWS; row++)
         {
+            int y = row * cellHeight;
+            if (row > 0) y -= 1;
+
             for (int x = 0; x < width; x++)
             {
-                // Apply transformation to the current point
-                Vector3 sourcePoint = new Vector3(x, y, 0);
-                Vector3 transformedPoint = transform.MultiplyPoint(sourcePoint);
-
-                // Calculate the position on the canvas
-                int targetX = baseX + Mathf.RoundToInt(transformedPoint.x);
-                int targetY = baseY + Mathf.RoundToInt(transformedPoint.y);
-
-                // Checking the canvas boundaries
-                if (targetX >= 0 && targetX < canvas.width && 
-                    targetY >= 0 && targetY < canvas.height)
+                for (int i = 0; i < lineWidth; i++)
                 {
-                    Color pixel = photo.GetPixel(x, y);
-                    if (pixel.a > 0.01f)
+                    if (y + i >= 0 && y + i < height)
                     {
-                        canvas.SetPixel(targetX, targetY, pixel);
+                        pixels[(y + i) * width + x] = blue;
                     }
                 }
             }
