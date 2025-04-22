@@ -14,14 +14,15 @@ using TMPro;
 
 public class ARCameraCapture : MonoBehaviour
 {
-    public GameObject previewPrefab;
-    public Transform previewContainer;
-    public Button galleryButton;
-    public Button exportZipButton;
-    public GameObject popup;
-    public TextMeshProUGUI popupText;
-    public Transform cameraTransform;
-    public CameraStatusUI cameraStatusUI;
+    [SerializeField] private GameObject previewPrefab;
+    [SerializeField] private Transform previewContainer;
+    [SerializeField] private Button fotoButton;
+    [SerializeField] private Button galleryButton;
+    [SerializeField] private Button exportZipButton;
+    [SerializeField] private GameObject popup;
+    [SerializeField] private TextMeshProUGUI popupText;
+    [SerializeField] private Transform cameraTransform;
+    [SerializeField] private CameraStatusUI cameraStatusUI;
 
     private List<Texture2D> capturedPhotos = new List<Texture2D>();
     private List<GameObject> previewImages = new List<GameObject>();
@@ -31,6 +32,8 @@ public class ARCameraCapture : MonoBehaviour
     private Quaternion baseGyroRotation;
     private Vector3 basePosition;
     private bool baseRotationSet = false;
+    
+    private bool sessionStarted = false;
 
     private float currentLatitude;
     private float currentLongitude;
@@ -51,6 +54,7 @@ public class ARCameraCapture : MonoBehaviour
 
         galleryButton.onClick.AddListener(OpenSystemGallery);
         exportZipButton.onClick.AddListener(OnExportSessionZipButton);
+        fotoButton.onClick.AddListener(CapturePhoto);
 
         Input.gyro.enabled = true;
         StartCoroutine(UpdateLocation());
@@ -82,6 +86,12 @@ public class ARCameraCapture : MonoBehaviour
 
     public void CapturePhoto()
     {
+        if (!sessionStarted)
+        {
+            StartNewSession();
+            sessionStarted = true;
+        }
+
         if (!baseRotationSet)
         {
             baseGyroRotation = Input.gyro.attitude;
@@ -91,6 +101,7 @@ public class ARCameraCapture : MonoBehaviour
 
         StartCoroutine(CaptureARPhoto());
     }
+
 
     private IEnumerator CaptureARPhoto()
     {
@@ -184,7 +195,7 @@ public class ARCameraCapture : MonoBehaviour
             for (int i = 0; i < 8; i++)
             {
                 int col = i % 4;
-                int row = i / 4;
+                int row = 1 - (i / 4);
                 combined.SetPixels(col * photo.width, row * photo.height, photo.width, photo.height, capturedPhotos[i].GetPixels());
             }
             combined.Apply();
@@ -277,6 +288,24 @@ public class ARCameraCapture : MonoBehaviour
         AndroidMediaScanner.ScanFile(zipPath);
         ShowPopup("📦 Session exported to ZIP");
     }
+    public void StartNewSession()
+    {
+        baseRotationSet = false;
+
+        currentSessionId = Guid.NewGuid().ToString();
+
+        foreach (var obj in previewImages)
+            Destroy(obj);
+        previewImages.Clear();
+        capturedPhotos.Clear();
+        sessionPhotos.Clear();
+
+        foreach (Transform child in previewContainer)
+            Destroy(child.gameObject);
+
+        galleryButton.image.sprite = null;
+    }
+
 
     private IEnumerator UpdateLocation()
     {

@@ -23,6 +23,12 @@ public class PhotoStitcher : MonoBehaviour
         LoadJsonData();
         StitchPhotos();
     }
+    
+    void Start()
+    {
+        LoadJsonData();
+        StitchPhotos();
+    }
 
     void LoadJsonData()
     {

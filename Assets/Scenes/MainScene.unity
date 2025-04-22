@@ -602,19 +602,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 660465545}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 1524265010}
-        m_TargetAssemblyTypeName: ARCameraCapture, Assembly-CSharp
-        m_MethodName: CapturePhoto
-        m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
 --- !u!114 &660465545
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1471,6 +1459,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   previewPrefab: {fileID: 576783028847399138, guid: c751e84ec1e1e834e812b6ce05e2a2bc, type: 3}
   previewContainer: {fileID: 2109517835}
+  fotoButton: {fileID: 660465544}
   galleryButton: {fileID: 1029107465}
   exportZipButton: {fileID: 725155965}
   popup: {fileID: 1747015809}
