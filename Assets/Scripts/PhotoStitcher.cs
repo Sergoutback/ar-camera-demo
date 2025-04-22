@@ -6,12 +6,6 @@ using System.IO;
 using Newtonsoft.Json;
 using System.IO.Compression;
 
-[Serializable]
-public class PhotoMetadataWrapper
-{
-    public PhotoMetadata[] Items;
-}
-
 public class PhotoStitcher : MonoBehaviour
 {
     public float positionScale = 2000f;
@@ -42,7 +36,6 @@ public class PhotoStitcher : MonoBehaviour
 
         var wrapper = JsonConvert.DeserializeObject<PhotoMetadataWrapper>(jsonFile.text);
         photoDataList = new List<PhotoMetadata>(wrapper.Items);
-
         photos = photoTextures;
         StitchPhotos();
     }
@@ -74,7 +67,7 @@ public class PhotoStitcher : MonoBehaviour
 
             Texture2D photo = photos[i];
             float angle = photoDataList[i].relativeEulerAngles.z + photoDataList[i].relativeEulerAngles.y;
-            Texture2D aligned = AlignPhoto(photo, angle);
+            Texture2D aligned = AlignPhotoPerspective(photo, angle);
 
             int col = i % cols;
             int row = i / cols;
@@ -111,11 +104,8 @@ public class PhotoStitcher : MonoBehaviour
             string jsonOut = JsonConvert.SerializeObject(
                 photoDataList[i],
                 Formatting.Indented,
-                new JsonSerializerSettings
-                {
-                    ReferenceLoopHandling = ReferenceLoopHandling.Ignore
-                });
-
+                new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore }
+            );
             string jsonPath = Path.Combine(exportDir, $"meta_{i}.json");
             File.WriteAllText(jsonPath, jsonOut);
         }
@@ -128,45 +118,35 @@ public class PhotoStitcher : MonoBehaviour
         Debug.Log("📦 Auto ZIP created: " + zipPath);
     }
 
-    Texture2D AlignPhoto(Texture2D photo, float angle)
+    Texture2D AlignPhotoPerspective(Texture2D source, float angle)
     {
-        Texture2D aligned = new Texture2D(photo.width, photo.height, TextureFormat.RGBA32, false);
-        Color[] alignedPixels = new Color[photo.width * photo.height];
-        Color[] photoPixels = photo.GetPixels();
+        RenderTexture rt = RenderTexture.GetTemporary(source.width, source.height);
+        Material rotMat = new Material(Shader.Find("Hidden/Internal-GUITextureClip"));
 
-        float angleRad = -angle * Mathf.Deg2Rad;
-        float cos = Mathf.Cos(angleRad);
-        float sin = Mathf.Sin(angleRad);
-        Vector2 center = new Vector2(photo.width / 2, photo.height / 2);
+        Matrix4x4 m = Matrix4x4.identity;
+        float rad = angle * Mathf.Deg2Rad;
+        m.SetTRS(Vector3.zero, Quaternion.Euler(0, 0, -angle), Vector3.one);
+        rotMat.SetMatrix("_GuiMatrix", m);
 
-        for (int y = 0; y < photo.height; y++)
-        {
-            for (int x = 0; x < photo.width; x++)
-            {
-                Vector2 pos = new Vector2(x, y);
-                Vector2 centered = pos - center;
-                Vector2 rotated = new Vector2(
-                    centered.x * cos - centered.y * sin,
-                    centered.x * sin + centered.y * cos
-                ) + center;
+        Graphics.Blit(source, rt, rotMat);
 
-                int srcX = Mathf.RoundToInt(rotated.x);
-                int srcY = Mathf.RoundToInt(rotated.y);
+        RenderTexture prev = RenderTexture.active;
+        RenderTexture.active = rt;
 
-                if (srcX >= 0 && srcX < photo.width && srcY >= 0 && srcY < photo.height)
-                {
-                    alignedPixels[y * photo.width + x] = photoPixels[srcY * photo.width + srcX];
-                }
-                else
-                {
-                    alignedPixels[y * photo.width + x] = Color.white;
-                }
-            }
-        }
+        Texture2D result = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+        result.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+        result.Apply();
 
-        aligned.SetPixels(alignedPixels);
-        aligned.Apply();
-        return aligned;
+        RenderTexture.active = prev;
+        RenderTexture.ReleaseTemporary(rt);
+
+        return result;
+    }
+
+    [Serializable]
+    public class PhotoMetadataWrapper
+    {
+        public PhotoMetadata[] Items;
     }
 
     Vector2 FindBestOverlap(Texture2D current, Texture2D previous, Vector3 currentOffset, Vector3 prevOffset)

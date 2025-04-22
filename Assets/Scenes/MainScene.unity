@@ -490,16 +490,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   positionScale: 40
   directionBias: 10
-  jsonFile: {fileID: 4900000, guid: c26780aabacf92b44b4ecb12cb53b910, type: 3}
+  jsonFile: {fileID: 4900000, guid: d7b9e32ef3c220843aef34e6c5466e2d, type: 3}
   photoTextures:
-  - {fileID: 2800000, guid: e8056275acca0484ea2c623a33304556, type: 3}
-  - {fileID: 2800000, guid: 24b838718eff4ce45a033fa7ff4c5eeb, type: 3}
-  - {fileID: 2800000, guid: 218a54dd4a19ddf418451c9457f70169, type: 3}
-  - {fileID: 2800000, guid: 437c096f2d1f41148b87087963102635, type: 3}
-  - {fileID: 2800000, guid: 3803a232f1c421a4f8625430d7bd1aad, type: 3}
-  - {fileID: 2800000, guid: 5c037e7e187566d438f6bb7861f7be8c, type: 3}
-  - {fileID: 2800000, guid: 0692bbeaf5647894283d29e6deb55db8, type: 3}
-  - {fileID: 2800000, guid: 7a1ce257fbbea2840b3b041041bba5d5, type: 3}
+  - {fileID: 2800000, guid: 88cdb00fb52e4c24d82770e7e54663ef, type: 3}
+  - {fileID: 2800000, guid: a2900393493284f4d9fcda29d2560367, type: 3}
+  - {fileID: 2800000, guid: 7217c800fd0240944b4886599bb1889b, type: 3}
+  - {fileID: 2800000, guid: 145ac38d5908c2e4db117db3d25913f2, type: 3}
+  - {fileID: 2800000, guid: 38af353a14df07545b15b6665a214d61, type: 3}
+  - {fileID: 2800000, guid: 97a0b4b14cc953845a1408a352d191a8, type: 3}
+  - {fileID: 2800000, guid: 14e06553dac4ae94da4f14441e113e8a, type: 3}
+  - {fileID: 2800000, guid: 748ac2fa1a4a66d43b393336acb9d77b, type: 3}
 --- !u!4 &622613887
 Transform:
   m_ObjectHideFlags: 0
