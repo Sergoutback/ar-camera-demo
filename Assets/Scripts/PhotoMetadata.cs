@@ -16,6 +16,7 @@ public class PhotoMetadata
     public Quaternion gyroAttitude;
     public Quaternion relativeGyroAttitude;
     public Vector3 relativeEulerAngles;
+    public Vector3 relativePosition;
     public Vector3 gyroEulerAngles;
 
     public float latitude;

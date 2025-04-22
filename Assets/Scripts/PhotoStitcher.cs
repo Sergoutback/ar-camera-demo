@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 public class PhotoData
 {
     public Vector3 relativeEulerAngles;
+    public Vector3 relativePosition;
     public string path;
 }
 
@@ -15,10 +16,6 @@ public class PhotoStitcher : MonoBehaviour
     public Texture2D[] photos;
     public TextAsset[] jsonFiles;
     private List<PhotoData> photoDataList = new List<PhotoData>();
-
-    private const int GRID_ROWS = 2;
-    private const int GRID_COLS = 4;
-    private const float BLUE_THRESHOLD = 0.6f;
 
     [ContextMenu("Stitch Photos")]
     void RunFromContextMenu()
@@ -37,51 +34,55 @@ public class PhotoStitcher : MonoBehaviour
         }
     }
 
-    bool IsBlue(Color c)
-    {
-        return c.b > BLUE_THRESHOLD && c.b > c.r * 2 && c.b > c.g * 2;
-    }
-
     void StitchPhotos()
     {
         int singleWidth = photos[0].width;
         int singleHeight = photos[0].height;
-        
-        // Create canvas with exact grid size
-        int canvasWidth = singleWidth * GRID_COLS;
-        int canvasHeight = singleHeight * GRID_ROWS;
+
+        int canvasWidth = singleWidth * 6;
+        int canvasHeight = singleHeight * 4;
 
         Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
         Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
+        for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.white;
 
-        // Fill with white
-        for (int i = 0; i < canvasPixels.Length; i++)
-        {
-            canvasPixels[i] = Color.white;
-        }
+        Vector2 canvasCenter = new Vector2(canvasWidth / 2, canvasHeight / 2);
+        float scale = 40f;
 
-        // First align and copy photos
-        for (int row = 0; row < GRID_ROWS; row++)
+        List<Vector2> placedPositions = new List<Vector2>();
+
+        for (int i = 0; i < photos.Length; i++)
         {
-            for (int col = 0; col < GRID_COLS; col++)
+            if (i >= photoDataList.Count) continue;
+
+            Texture2D photo = photos[i];
+            float angle = photoDataList[i].relativeEulerAngles.z;
+            Vector3 offset = photoDataList[i].relativePosition;
+
+            Texture2D aligned = AlignPhoto(photo, angle);
+
+            Vector2 approxPos = canvasCenter + new Vector2(offset.x, -offset.z) * scale;
+
+            if (i > 0)
             {
-                int index = row * GRID_COLS + col;
-                if (index >= photos.Length) continue;
+                Vector2 previousPos = placedPositions[i - 1];
+                Texture2D previous = photos[i - 1];
+                Vector3 prevOffset = photoDataList[i - 1].relativePosition;
 
-                Texture2D aligned = AlignPhoto(photos[index], photoDataList[index].relativeEulerAngles.z);
-                
-                CopyPhotoToGrid(
-                    aligned,
-                    canvas,
-                    canvasPixels,
-                    col * singleWidth,
-                    (GRID_ROWS - 1 - row) * singleHeight
-                );
+                Vector2 bestOffset = FindBestOverlap(aligned, previous, offset, prevOffset);
+                approxPos += bestOffset;
             }
-        }
 
-        // Draw perfect grid lines
-        DrawGridLines(canvasPixels, canvasWidth, canvasHeight, singleWidth, singleHeight);
+            placedPositions.Add(approxPos);
+
+            CopyPhotoToGrid(
+                aligned,
+                canvas,
+                canvasPixels,
+                Mathf.RoundToInt(approxPos.x - singleWidth / 2),
+                Mathf.RoundToInt(approxPos.y - singleHeight / 2)
+            );
+        }
 
         canvas.SetPixels(canvasPixels);
         canvas.Apply();
@@ -94,18 +95,15 @@ public class PhotoStitcher : MonoBehaviour
 
     Texture2D AlignPhoto(Texture2D photo, float angle)
     {
-        // Create new texture for aligned photo
         Texture2D aligned = new Texture2D(photo.width, photo.height, TextureFormat.RGBA32, false);
         Color[] alignedPixels = new Color[photo.width * photo.height];
         Color[] photoPixels = photo.GetPixels();
 
-        // Calculate rotation
-        float angleRad = -angle * Mathf.Deg2Rad; // Negative because we're correcting the rotation
+        float angleRad = -angle * Mathf.Deg2Rad;
         float cos = Mathf.Cos(angleRad);
         float sin = Mathf.Sin(angleRad);
-        Vector2 center = new Vector2(photo.width/2, photo.height/2);
+        Vector2 center = new Vector2(photo.width / 2, photo.height / 2);
 
-        // Rotate each pixel
         for (int y = 0; y < photo.height; y++)
         {
             for (int x = 0; x < photo.width; x++)
@@ -136,65 +134,104 @@ public class PhotoStitcher : MonoBehaviour
         return aligned;
     }
 
+    Vector2 FindBestOverlap(Texture2D current, Texture2D previous, Vector3 currentOffset, Vector3 prevOffset)
+    {
+        int searchRange = 10;
+        float minDiff = float.MaxValue;
+        Vector2 bestOffset = Vector2.zero;
+
+        Vector3 delta = currentOffset - prevOffset;
+        bool horizontalPriority = Mathf.Abs(delta.x) > Mathf.Abs(delta.z);
+
+        for (int dx = -searchRange; dx <= searchRange; dx++)
+        {
+            for (int dy = -searchRange; dy <= searchRange; dy++)
+            {
+                float totalDiff = 0f;
+
+                if (horizontalPriority)
+                {
+                    totalDiff = CompareRightLeftEdges(current, previous, dx, dy);
+                }
+                else
+                {
+                    totalDiff = CompareBottomTopEdges(current, previous, dx, dy);
+                }
+
+                if (totalDiff < minDiff)
+                {
+                    minDiff = totalDiff;
+                    bestOffset = new Vector2(dx, dy);
+                }
+            }
+        }
+
+        return bestOffset;
+    }
+
+    float CompareRightLeftEdges(Texture2D current, Texture2D previous, int offsetX, int offsetY)
+    {
+        int height = Mathf.Min(current.height, previous.height);
+        int width = 5;
+
+        float totalDiff = 0f;
+
+        for (int y = 0; y < height; y++)
+        {
+            int y1 = y + offsetY;
+            if (y1 < 0 || y1 >= height) continue;
+
+            for (int x = 0; x < width; x++)
+            {
+                Color c1 = current.GetPixel(current.width - width + x, y1);
+                Color c2 = previous.GetPixel(x, y1);
+                totalDiff += Mathf.Abs(c1.r - c2.r) + Mathf.Abs(c1.g - c2.g) + Mathf.Abs(c1.b - c2.b);
+            }
+        }
+
+        return totalDiff;
+    }
+
+    float CompareBottomTopEdges(Texture2D current, Texture2D previous, int offsetX, int offsetY)
+    {
+        int width = Mathf.Min(current.width, previous.width);
+        int height = 5;
+
+        float totalDiff = 0f;
+
+        for (int x = 0; x < width; x++)
+        {
+            int x1 = x + offsetX;
+            if (x1 < 0 || x1 >= width) continue;
+
+            for (int y = 0; y < height; y++)
+            {
+                Color c1 = current.GetPixel(x1, y);
+                Color c2 = previous.GetPixel(x1, previous.height - height + y);
+                totalDiff += Mathf.Abs(c1.r - c2.r) + Mathf.Abs(c1.g - c2.g) + Mathf.Abs(c1.b - c2.b);
+            }
+        }
+
+        return totalDiff;
+    }
+
     void CopyPhotoToGrid(Texture2D photo, Texture2D canvas, Color[] canvasPixels, int baseX, int baseY)
     {
         Color[] photoPixels = photo.GetPixels();
-        
+
         for (int y = 0; y < photo.height; y++)
         {
             for (int x = 0; x < photo.width; x++)
             {
                 Color color = photoPixels[y * photo.width + x];
-                
+
                 int destX = x + baseX;
                 int destY = y + baseY;
-                
-                if (destX >= 0 && destX < canvas.width && 
+
+                if (destX >= 0 && destX < canvas.width &&
                     destY >= 0 && destY < canvas.height)
                 {
                     canvasPixels[destY * canvas.width + destX] = color;
-                }
-            }
-        }
-    }
-
-    void DrawGridLines(Color[] pixels, int width, int height, int cellWidth, int cellHeight)
-    {
-        Color blue = new Color(0, 0, 1, 1);
-        int lineWidth = 2;
-
-        // Draw vertical lines
-        for (int col = 0; col <= GRID_COLS; col++)
-        {
-            int x = col * cellWidth;
-            if (col > 0) x -= 1;
-
-            for (int y = 0; y < height; y++)
-            {
-                for (int i = 0; i < lineWidth; i++)
-                {
-                    if (x + i >= 0 && x + i < width)
-                    {
-                        pixels[y * width + (x + i)] = blue;
-                    }
-                }
-            }
-        }
-
-        // Draw horizontal lines
-        for (int row = 0; row <= GRID_ROWS; row++)
-        {
-            int y = row * cellHeight;
-            if (row > 0) y -= 1;
-
-            for (int x = 0; x < width; x++)
-            {
-                for (int i = 0; i < lineWidth; i++)
-                {
-                    if (y + i >= 0 && y + i < height)
-                    {
-                        pixels[(y + i) * width + x] = blue;
-                    }
                 }
             }
         }

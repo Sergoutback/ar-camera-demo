@@ -1,73 +1,286 @@
+// ARCameraCapture.cs — fixed collage orientation and added gyro/location to metadata
+
 using System;
-using System.IO;
-using UnityEngine;
-using UnityEngine.UI;
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine.Android;
+using System.IO;
 using System.IO.Compression;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
+using Unity.Collections;
+using TMPro;
 
 public class ARCameraCapture : MonoBehaviour
 {
-    public RawImage cameraPreview;
     public GameObject previewPrefab;
     public Transform previewContainer;
     public Button galleryButton;
     public Button exportZipButton;
     public GameObject popup;
+    public TextMeshProUGUI popupText;
+    public Transform cameraTransform;
+    public CameraStatusUI cameraStatusUI;
 
-    private WebCamTexture webcamTexture;
     private List<Texture2D> capturedPhotos = new List<Texture2D>();
     private List<GameObject> previewImages = new List<GameObject>();
-    private string savedPhotosPath;
-    private int photoCounter = 0;
     private string lastSavedImagePath;
-    
     private string currentSessionId;
+
+    private Quaternion baseGyroRotation;
+    private Vector3 basePosition;
+    private bool baseRotationSet = false;
+
     private float currentLatitude;
     private float currentLongitude;
 
-    private Quaternion baseGyroRotation;
-    private bool baseRotationSet = false;
-    
     private List<PhotoMetadata> sessionPhotos = new List<PhotoMetadata>();
 
+    private ARCameraManager arCameraManager;
 
-
+    void Awake()
+    {
+        arCameraManager = Camera.main.GetComponent<ARCameraManager>();
+    }
 
     void Start()
     {
-        savedPhotosPath = Application.persistentDataPath;
         RequestPermissions();
-        StartCoroutine(InitializeAfterPermissions());
-        StartCoroutine(MonitorCamera());
-        Screen.sleepTimeout = SleepTimeout.NeverSleep;
+        currentSessionId = Guid.NewGuid().ToString();
 
-        galleryButton.onClick.AddListener(() =>
+        galleryButton.onClick.AddListener(OpenSystemGallery);
+        exportZipButton.onClick.AddListener(OnExportSessionZipButton);
+
+        Input.gyro.enabled = true;
+        StartCoroutine(UpdateLocation());
+    }
+
+    void Update()
+    {
+        if (cameraTransform == null || !baseRotationSet)
+        {
+            cameraStatusUI.ShowWaiting();
+            return;
+        }
+
+        Vector3 currentPosition = cameraTransform.position;
+        Quaternion currentGyro = Input.gyro.attitude;
+        Quaternion relativeGyro = Quaternion.Inverse(baseGyroRotation) * currentGyro;
+        Vector3 relativeEuler = relativeGyro.eulerAngles;
+        Vector3 relativePos = currentPosition - basePosition;
+
+#if UNITY_EDITOR
+        relativePos = Vector3.zero;
+#endif
+
+        if (relativePos.magnitude < 0.01f)
+            cameraStatusUI.ShowNoMovement(relativePos, relativeEuler);
+        else
+            cameraStatusUI.ShowReady(relativePos, relativeEuler);
+    }
+
+    public void CapturePhoto()
+    {
+        if (!baseRotationSet)
+        {
+            baseGyroRotation = Input.gyro.attitude;
+            basePosition = cameraTransform.position;
+            baseRotationSet = true;
+        }
+
+        StartCoroutine(CaptureARPhoto());
+    }
+
+    private IEnumerator CaptureARPhoto()
+    {
+        yield return new WaitForEndOfFrame();
+
+        if (arCameraManager == null)
+        {
+            Debug.LogError("[ARCamera] ARCameraManager not assigned.");
+            yield break;
+        }
+
+        if (!arCameraManager.TryAcquireLatestCpuImage(out XRCpuImage image))
+        {
+            Debug.LogWarning("[ARCamera] Could not acquire AR camera image.");
+            yield break;
+        }
+
+        Texture2D photo;
+
+        using (image)
+        {
+            var conversionParams = new XRCpuImage.ConversionParams
+            {
+                inputRect = new RectInt(0, 0, image.width, image.height),
+                outputDimensions = new Vector2Int(image.width, image.height),
+                outputFormat = TextureFormat.RGB24,
+                transformation = XRCpuImage.Transformation.MirrorY
+            };
+
+            var rawData = new NativeArray<byte>(image.GetConvertedDataSize(conversionParams), Allocator.Temp);
+            image.Convert(conversionParams, rawData);
+
+            photo = new Texture2D(conversionParams.outputDimensions.x, conversionParams.outputDimensions.y, conversionParams.outputFormat, false);
+            photo.LoadRawTextureData(rawData);
+            photo.Apply();
+
+            rawData.Dispose();
+        }
+
+        photo = RotateTexture90CW(photo);
+
+        string filename = $"Photo_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+        string path = Path.Combine(Application.persistentDataPath, filename);
+        File.WriteAllBytes(path, photo.EncodeToJPG(95));
+
+        NativeGallery.SaveImageToGallery(path, "ARCameraDemo", filename, (success, outputPath) =>
+        {
+            if (success) lastSavedImagePath = outputPath;
+        });
+
+        AddPhotoToPreview(photo, path);
+        ShowPopup("📸 Photo saved to Gallery");
+    }
+
+    private void AddPhotoToPreview(Texture2D photo, string imagePath)
+    {
+        GameObject newPreview = Instantiate(previewPrefab, previewContainer);
+        newPreview.GetComponent<RawImage>().texture = photo;
+        previewImages.Add(newPreview);
+        capturedPhotos.Add(photo);
+
+        Quaternion currentGyro = Input.gyro.attitude;
+        Quaternion relativeGyro = Quaternion.Inverse(baseGyroRotation) * currentGyro;
+        Vector3 relativeEuler = relativeGyro.eulerAngles;
+        Vector3 currentPosition = cameraTransform.position;
+        Vector3 relativePos = currentPosition - basePosition;
+
+        PhotoMetadata meta = new PhotoMetadata
+        {
+            photoId = Guid.NewGuid().ToString(),
+            sessionId = currentSessionId,
+            timestamp = DateTime.Now.ToString("o"),
+            path = imagePath,
+            width = photo.width,
+            height = photo.height,
+            quality = 95,
+            gyroRotationRate = Input.gyro.rotationRateUnbiased,
+            gyroAttitude = currentGyro,
+            relativeGyroAttitude = relativeGyro,
+            relativeEulerAngles = relativeEuler,
+            relativePosition = relativePos,
+            gyroEulerAngles = currentGyro.eulerAngles,
+            latitude = currentLatitude,
+            longitude = currentLongitude
+        };
+        sessionPhotos.Add(meta);
+
+        if (capturedPhotos.Count == 8)
+        {
+            Texture2D combined = new Texture2D(photo.width * 4, photo.height * 2);
+            for (int i = 0; i < 8; i++)
+            {
+                int col = i % 4;
+                int row = i / 4;
+                combined.SetPixels(col * photo.width, row * photo.height, photo.width, photo.height, capturedPhotos[i].GetPixels());
+            }
+            combined.Apply();
+            galleryButton.image.sprite = Sprite.Create(combined, new Rect(0, 0, combined.width, combined.height), new Vector2(0.5f, 0.5f));
+
+            string combinedName = $"Combined_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+            string combinedPath = Path.Combine(Application.persistentDataPath, combinedName);
+            File.WriteAllBytes(combinedPath, combined.EncodeToJPG(95));
+            NativeGallery.SaveImageToGallery(combinedPath, "ARCameraDemo", combinedName);
+            ShowPopup("🧵 Collage saved to Gallery");
+
+            sessionPhotos.Add(new PhotoMetadata
+            {
+                photoId = Guid.NewGuid().ToString(),
+                sessionId = currentSessionId,
+                timestamp = DateTime.Now.ToString("o"),
+                path = combinedPath,
+                width = combined.width,
+                height = combined.height,
+                quality = 95
+            });
+
+            SaveSessionMetadata();
+        }
+    }
+
+    private void SaveSessionMetadata()
+    {
+        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
+        string sessionFile = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.json");
+        File.WriteAllText(sessionFile, sessionJson);
+    }
+
+    private Texture2D RotateTexture90CW(Texture2D original)
+    {
+        int width = original.width;
+        int height = original.height;
+        Texture2D rotated = new Texture2D(height, width);
+
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                rotated.SetPixel(height - y - 1, x, original.GetPixel(x, y));
+            }
+        }
+
+        rotated.Apply();
+        return rotated;
+    }
+
+    private void ShowPopup(string message)
+    {
+        if (popup != null && popupText != null)
         {
             popup.SetActive(true);
-            StartCoroutine(DisablePopupAfterDelay(3f));
-            OpenSystemGallery();
-        });
-        
-        exportZipButton.onClick.AddListener(OnExportSessionZipButton);
-        
-        currentSessionId = Guid.NewGuid().ToString();
-        Input.gyro.enabled = true;
-        Input.compass.enabled = true;
-        StartCoroutine(UpdateLocation());
+            popupText.text = message;
+            StartCoroutine(HidePopupAfterDelay(2f));
+        }
+    }
 
+    private IEnumerator HidePopupAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        popup.SetActive(false);
+    }
 
+    public void OnExportSessionZipButton()
+    {
+        string exportDir = Path.Combine(Application.temporaryCachePath, $"Session_{currentSessionId}_Export");
+        Directory.CreateDirectory(exportDir);
+
+        foreach (var meta in sessionPhotos)
+        {
+            if (File.Exists(meta.path))
+                File.Copy(meta.path, Path.Combine(exportDir, Path.GetFileName(meta.path)), true);
+
+            string jsonPath = Path.ChangeExtension(meta.path, ".json");
+            if (File.Exists(jsonPath))
+                File.Copy(jsonPath, Path.Combine(exportDir, Path.GetFileName(jsonPath)), true);
+        }
+
+        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
+        File.WriteAllText(Path.Combine(exportDir, $"Session_{currentSessionId}.json"), sessionJson);
+
+        string zipPath = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.zip");
+        if (File.Exists(zipPath)) File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(exportDir, zipPath);
+
+        AndroidMediaScanner.ScanFile(zipPath);
+        ShowPopup("📦 Session exported to ZIP");
     }
 
     private IEnumerator UpdateLocation()
     {
-        if (!Input.location.isEnabledByUser)
-        {
-            Debug.LogWarning("Location not enabled.");
-            yield break;
-        }
-
+        if (!Input.location.isEnabledByUser) yield break;
         Input.location.Start();
 
         int maxWait = 10;
@@ -82,376 +295,43 @@ public class ARCameraCapture : MonoBehaviour
             currentLatitude = Input.location.lastData.latitude;
             currentLongitude = Input.location.lastData.longitude;
         }
-        else
-        {
-            Debug.LogWarning("Unable to determine device location.");
-        }
     }
 
-
-    void RequestPermissions()
-    {
-        if (!Permission.HasUserAuthorizedPermission(Permission.Camera))
-        {
-            Permission.RequestUserPermission(Permission.Camera);
-        }
-        if (!Permission.HasUserAuthorizedPermission(Permission.ExternalStorageWrite))
-        {
-            Permission.RequestUserPermission(Permission.ExternalStorageWrite);
-        }
-    }
-
-    IEnumerator InitializeAfterPermissions()
-    {
-        yield return new WaitForSeconds(2);
-        if (!Permission.HasUserAuthorizedPermission(Permission.Camera))
-        {
-            Debug.LogError("Camera permission denied!");
-            yield break;
-        }
-        StartCoroutine(InitializeCameraWithDelay());
-    }
-
-    IEnumerator InitializeCameraWithDelay()
-    {
-        WebCamDevice[] devices = WebCamTexture.devices;
-        if (devices.Length == 0) yield break;
-
-        string cameraName = devices[0].name;
-        foreach (var device in devices)
-        {
-            if (!device.isFrontFacing)
-            {
-                cameraName = device.name;
-                break;
-            }
-        }
-
-        webcamTexture = new WebCamTexture(cameraName, 1280, 720); // Set high resolution
-        webcamTexture.Play();
-
-        yield return new WaitUntil(() => webcamTexture.width > 16);
-        cameraPreview.texture = webcamTexture;
-        cameraPreview.enabled = true;
-
-        Debug.Log($"Camera started: {cameraName}, Resolution: {webcamTexture.width}x{webcamTexture.height}");
-    }
-
-    IEnumerator MonitorCamera()
-    {
-        while (true)
-        {
-            if (webcamTexture != null && !webcamTexture.isPlaying)
-            {
-                Debug.LogWarning("Camera stopped! Restarting...");
-                StartCoroutine(InitializeCameraWithDelay());
-            }
-            yield return new WaitForSeconds(2);
-        }
-    }
-
-    public void CapturePhoto()
-    {
-        if (capturedPhotos.Count == 0)
-        {
-            StartNewSession(); // new session before first photo
-        }
-
-        StartCoroutine(TakeScreenshot());
-    }
-
-
-    private IEnumerator TakeScreenshot()
-    {
-        yield return new WaitForEndOfFrame();
-        if (webcamTexture == null || !webcamTexture.isPlaying) yield break;
-
-        Texture2D screenshot = new Texture2D(webcamTexture.width, webcamTexture.height, TextureFormat.RGB24, false);
-        screenshot.SetPixels32(webcamTexture.GetPixels32());
-        screenshot.Apply();
-
-        if (Screen.orientation == ScreenOrientation.Portrait || Screen.orientation == ScreenOrientation.PortraitUpsideDown)
-        {
-            screenshot = RotateTexture90(screenshot);
-        }
-
-        byte[] imageBytes = screenshot.EncodeToJPG(95);
-        string filename = $"Photo_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
-        string tempPath = Path.Combine(Application.temporaryCachePath, filename);
-        File.WriteAllBytes(tempPath, imageBytes);
-
-        Quaternion currentGyro = Input.gyro.attitude;
-        Quaternion relativeGyro = Quaternion.identity;
-
-        if (!baseRotationSet)
-        {
-            baseGyroRotation = currentGyro;
-            baseRotationSet = true;
-        }
-        else
-        {
-            relativeGyro = Quaternion.Inverse(baseGyroRotation) * currentGyro;
-        }
-        
-        Vector3 relativeEuler = relativeGyro.eulerAngles;
-        
-        Vector3 gyroEuler = currentGyro.eulerAngles;
-
-        PhotoMetadata metadata = new PhotoMetadata
-        {
-            photoId = Guid.NewGuid().ToString(),
-            sessionId = currentSessionId,
-            timestamp = DateTime.Now.ToString("o"),
-            path = tempPath,
-            width = screenshot.width,
-            height = screenshot.height,
-            quality = 95,
-            gyroRotationRate = Input.gyro.rotationRateUnbiased,
-            gyroAttitude = currentGyro,
-            relativeGyroAttitude = relativeGyro,
-            relativeEulerAngles = relativeEuler,
-            gyroEulerAngles = gyroEuler,
-            latitude = currentLatitude,
-            longitude = currentLongitude,
-        };
-        
-        sessionPhotos.Add(metadata);
-
-        string json = JsonUtility.ToJson(metadata, true);
-        string jsonPath = Path.ChangeExtension(tempPath, ".json");
-        File.WriteAllText(jsonPath, json);
-
-        AndroidMediaScanner.ScanFile(jsonPath);
-        
-        Debug.Log($"[Meta] JSON saved to: {jsonPath}");
-
-        
-        NativeGallery.SaveImageToGallery(tempPath, "ARCameraDemo", filename, (success, path) =>
-        {
-            Debug.Log($"[NativeGallery] Saved: {success}, Path: {path}");
-            if (success) lastSavedImagePath = path;
-        });
-
-
-        photoCounter++;
-        AddPhotoToPreview(screenshot);
-
-        if (capturedPhotos.Count >= 8)
-        {
-            StartCoroutine(HandleFullPreview());
-        }
-    }
-
-
-
-
-    private void AddPhotoToPreview(Texture2D photo)
-    {
-        GameObject newPreview = Instantiate(previewPrefab, previewContainer);
-        newPreview.GetComponent<RawImage>().texture = photo;
-        previewImages.Add(newPreview);
-        capturedPhotos.Add(photo);
-    }
-
-    private IEnumerator HandleFullPreview()
-    {
-        yield return new WaitForSeconds(1);
-        CombinePhotos();
-        ClearPreviews();
-    }
-
-    private void CombinePhotos()
-    {
-        int w = capturedPhotos[0].width, h = capturedPhotos[0].height;
-        Texture2D finalTexture = new Texture2D(w * 4, h * 2, TextureFormat.RGB24, false);
-
-        for (int i = 0; i < 8; i++)
-        {
-            int row = i / 4;
-            int col = i % 4;
-            int flippedRow = 1 - row; // flip vertically
-            finalTexture.SetPixels(col * w, flippedRow * h, w, h, capturedPhotos[i].GetPixels());
-        }
-        finalTexture.Apply();
-
-        string filename = "Combined_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".jpg";
-        string tempPath = Path.Combine(Application.temporaryCachePath, filename);
-        File.WriteAllBytes(tempPath, finalTexture.EncodeToJPG(95));
-
-        NativeGallery.SaveImageToGallery(tempPath, "ARCameraDemo", filename, (success, path) =>
-        {
-            Debug.Log($"[NativeGallery] Combined image saved: {success}, Path: {path}");
-            if (success) lastSavedImagePath = path;
-        });
-
-
-        galleryButton.image.sprite = Sprite.Create(finalTexture, new Rect(0, 0, finalTexture.width, finalTexture.height), new Vector2(0.5f, 0.5f));
-        SaveSessionMetadata();
-    }
-
-    private void SaveSessionMetadata()
-    {
-        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
-        string sessionFile = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.json");
-        File.WriteAllText(sessionFile, sessionJson);
-        Debug.Log($"[Meta] Session metadata saved to: {sessionFile}");
-    }
-
-
-
-    private void ClearPreviews()
-    {
-        foreach (GameObject preview in previewImages) Destroy(preview);
-        previewImages.Clear();
-        capturedPhotos.Clear();
-    }
-
-    private void OpenGallery()
-    {
-#if UNITY_EDITOR
-        Application.OpenURL("file://" + savedPhotosPath);
-#elif UNITY_ANDROID
-        popup.SetActive(true);
-        StartCoroutine(DisablePopupAfterDelay(3f));
-#endif
-    }
-
-    private IEnumerator DisablePopupAfterDelay(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        popup.SetActive(false);
-    }
-    private Texture2D RotateTexture90(Texture2D original)
-    {
-        int width = original.width;
-        int height = original.height;
-        Texture2D rotated = new Texture2D(height, width);
-
-        for (int x = 0; x < width; x++)
-        {
-            for (int y = 0; y < height; y++)
-            {
-                rotated.SetPixel(y, width - x - 1, original.GetPixel(x, y));
-            }
-        }
-
-        rotated.Apply();
-        return rotated;
-    }
-    
-    public void OpenLastPhoto()
-    {
-#if UNITY_ANDROID && !UNITY_EDITOR
-    if (string.IsNullOrEmpty(lastSavedImagePath))
-    {
-        Debug.LogWarning("[ARCamera] No saved photo to open.");
-        return;
-    }
-
-    try
-    {
-        using (AndroidJavaClass intentClass = new AndroidJavaClass("android.content.Intent"))
-        using (AndroidJavaObject intent = new AndroidJavaObject("android.content.Intent"))
-        using (AndroidJavaClass uriClass = new AndroidJavaClass("android.net.Uri"))
-        using (AndroidJavaObject fileObj = new AndroidJavaObject("java.io.File", lastSavedImagePath))
-        {
-            AndroidJavaObject uri = uriClass.CallStatic<AndroidJavaObject>("fromFile", fileObj);
-
-            intent.Call<AndroidJavaObject>("setAction", intentClass.GetStatic<string>("ACTION_VIEW"));
-            intent.Call<AndroidJavaObject>("setDataAndType", uri, "image/*");
-            intent.Call<AndroidJavaObject>("addFlags", intentClass.GetStatic<int>("FLAG_ACTIVITY_NEW_TASK"));
-
-            using (AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-            using (AndroidJavaObject currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
-            {
-                currentActivity.Call("startActivity", intent);
-            }
-        }
-    }
-    catch (System.Exception e)
-    {
-        Debug.LogError("[ARCamera] Failed to open photo: " + e.Message);
-    }
-#else
-        Debug.Log("[ARCamera] Open photo is only available on Android device.");
-#endif
-    }
-    
     public void OpenSystemGallery()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-    try
-    {
-        using (AndroidJavaClass intentClass = new AndroidJavaClass("android.content.Intent"))
-        using (AndroidJavaObject intent = new AndroidJavaObject("android.content.Intent"))
-        using (AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-        using (AndroidJavaObject currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
+        try
         {
-            intent.Call<AndroidJavaObject>("setAction", intentClass.GetStatic<string>("ACTION_VIEW"));
-            intent.Call<AndroidJavaObject>("setType", "image/*");
-            intent.Call<AndroidJavaObject>("addFlags", intentClass.GetStatic<int>("FLAG_ACTIVITY_NEW_TASK"));
+            ShowPopup("📁 Opening system gallery...");
 
-            currentActivity.Call("startActivity", intent);
+            using (AndroidJavaClass intentClass = new AndroidJavaClass("android.content.Intent"))
+            using (AndroidJavaObject intent = new AndroidJavaObject("android.content.Intent"))
+            using (AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (AndroidJavaObject currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
+            {
+                intent.Call<AndroidJavaObject>("setAction", intentClass.GetStatic<string>("ACTION_VIEW"));
+                intent.Call<AndroidJavaObject>("setType", "image/*");
+                intent.Call<AndroidJavaObject>("addFlags", intentClass.GetStatic<int>("FLAG_ACTIVITY_NEW_TASK"));
+                currentActivity.Call("startActivity", intent);
+            }
         }
-    }
-    catch (Exception e)
-    {
-        Debug.LogError("[ARCamera] Failed to open gallery: " + e.Message);
-    }
+        catch (Exception e)
+        {
+            Debug.LogError("[ARCamera] Failed to open gallery: " + e.Message);
+        }
 #else
         Debug.Log("[ARCamera] Gallery open only works on Android device.");
 #endif
     }
-    
-    public void StartNewSession()
+
+    private void RequestPermissions()
     {
-        baseRotationSet = false;
-        baseGyroRotation = Quaternion.identity;
-        currentSessionId = Guid.NewGuid().ToString();
-        sessionPhotos.Clear();
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Camera))
+            UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.Camera);
 
-        Debug.Log("[Session] New session started: " + currentSessionId);
+        if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.FineLocation))
+            UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.FineLocation);
+#endif
     }
-    
-    private void ExportSessionToZip()
-    {
-        string exportDir = Path.Combine(Application.temporaryCachePath, $"Session_{currentSessionId}_Export");
-        Directory.CreateDirectory(exportDir);
-
-        // Копируем файлы
-        foreach (var meta in sessionPhotos)
-        {
-            if (File.Exists(meta.path))
-            {
-                File.Copy(meta.path, Path.Combine(exportDir, Path.GetFileName(meta.path)), true);
-            }
-
-            string jsonPath = Path.ChangeExtension(meta.path, ".json");
-            if (File.Exists(jsonPath))
-            {
-                File.Copy(jsonPath, Path.Combine(exportDir, Path.GetFileName(jsonPath)), true);
-            }
-        }
-
-        // Добавляем Session metadata JSON
-        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
-        string sessionMetaPath = Path.Combine(exportDir, $"Session_{currentSessionId}.json");
-        File.WriteAllText(sessionMetaPath, sessionJson);
-
-        // Создаём zip
-        string zipPath = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.zip");
-        if (File.Exists(zipPath)) File.Delete(zipPath);
-        ZipFile.CreateFromDirectory(exportDir, zipPath);
-
-        Debug.Log($"[Export] ZIP created at: {zipPath}");
-
-        AndroidMediaScanner.ScanFile(zipPath);
-    }
-    
-    public void OnExportSessionZipButton()
-    {
-        ExportSessionToZip();
-    }
-
-
 }
