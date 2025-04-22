@@ -1,102 +1,131 @@
 using UnityEngine;
+using UnityEditor;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Newtonsoft.Json;
+using System.IO.Compression;
 
 [Serializable]
-public class PhotoData
+public class PhotoMetadataWrapper
 {
-    public Vector3 relativeEulerAngles;
-    public Vector3 relativePosition;
-    public string path;
+    public PhotoMetadata[] Items;
 }
 
 public class PhotoStitcher : MonoBehaviour
 {
-    public Texture2D[] photos;
-    public TextAsset[] jsonFiles;
-    private List<PhotoData> photoDataList = new List<PhotoData>();
+    public float positionScale = 2000f;
+    public float directionBias = 10f;
 
-    [ContextMenu("Stitch Photos")]
-    void RunFromContextMenu()
+    public TextAsset jsonFile;
+    public Texture2D[] photoTextures;
+
+    private Texture2D[] photos;
+    private List<PhotoMetadata> photoDataList = new List<PhotoMetadata>();
+
+    public void RunStitchExternally(Texture2D[] inputPhotos, PhotoMetadata[] inputMeta)
     {
-        LoadJsonData();
+        photos = inputPhotos;
+        photoDataList = new List<PhotoMetadata>(inputMeta);
         StitchPhotos();
     }
-    
-    void Start()
-    {
-        LoadJsonData();
-        StitchPhotos();
-    }
 
-    void LoadJsonData()
+#if UNITY_EDITOR
+    [ContextMenu("🔧 Test Stitch From Inspector")]
+    public void TestStitchFromInspector()
     {
-        photoDataList.Clear();
-        foreach (var jsonFile in jsonFiles)
+        if (jsonFile == null || photoTextures == null || photoTextures.Length == 0)
         {
-            PhotoData data = JsonConvert.DeserializeObject<PhotoData>(jsonFile.text);
-            photoDataList.Add(data);
+            Debug.LogError("[PhotoStitcher] Assign both jsonFile and photoTextures[] in inspector.");
+            return;
         }
+
+        var wrapper = JsonConvert.DeserializeObject<PhotoMetadataWrapper>(jsonFile.text);
+        photoDataList = new List<PhotoMetadata>(wrapper.Items);
+
+        photos = photoTextures;
+        StitchPhotos();
     }
+#endif
 
     void StitchPhotos()
     {
+        if (photos == null || photoDataList == null || photos.Length == 0 || photoDataList.Count == 0)
+        {
+            Debug.LogWarning("[PhotoStitcher] Nothing to stitch");
+            return;
+        }
+
         int singleWidth = photos[0].width;
         int singleHeight = photos[0].height;
 
-        int canvasWidth = singleWidth * 6;
-        int canvasHeight = singleHeight * 4;
+        int cols = 4;
+        int rows = 2;
+        int canvasWidth = singleWidth * cols;
+        int canvasHeight = singleHeight * rows;
 
         Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
         Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
         for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.white;
-
-        Vector2 canvasCenter = new Vector2(canvasWidth / 2, canvasHeight / 2);
-        float scale = 40f;
-
-        List<Vector2> placedPositions = new List<Vector2>();
 
         for (int i = 0; i < photos.Length; i++)
         {
             if (i >= photoDataList.Count) continue;
 
             Texture2D photo = photos[i];
-            float angle = photoDataList[i].relativeEulerAngles.z;
-            Vector3 offset = photoDataList[i].relativePosition;
-
+            float angle = photoDataList[i].relativeEulerAngles.z + photoDataList[i].relativeEulerAngles.y;
             Texture2D aligned = AlignPhoto(photo, angle);
 
-            Vector2 approxPos = canvasCenter + new Vector2(offset.x, -offset.z) * scale;
+            int col = i % cols;
+            int row = i / cols;
 
-            if (i > 0)
-            {
-                Vector2 previousPos = placedPositions[i - 1];
-                Texture2D previous = photos[i - 1];
-                Vector3 prevOffset = photoDataList[i - 1].relativePosition;
-
-                Vector2 bestOffset = FindBestOverlap(aligned, previous, offset, prevOffset);
-                approxPos += bestOffset;
-            }
-
-            placedPositions.Add(approxPos);
+            int baseX = col * singleWidth;
+            int baseY = (rows - 1 - row) * singleHeight;
 
             CopyPhotoToGrid(
                 aligned,
                 canvas,
                 canvasPixels,
-                Mathf.RoundToInt(approxPos.x - singleWidth / 2),
-                Mathf.RoundToInt(approxPos.y - singleHeight / 2)
+                baseX,
+                baseY
             );
         }
 
         canvas.SetPixels(canvasPixels);
         canvas.Apply();
 
-        byte[] jpgData = ImageConversion.EncodeToJPG(canvas, 95);
-        string filePath = Application.dataPath + "/StitchedGrid.jpg";
-        System.IO.File.WriteAllBytes(filePath, jpgData);
-        Debug.Log("Saved stitched image: " + filePath);
+        string filePath = Path.Combine(Application.persistentDataPath, "StitchedGrid_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
+        byte[] pngData = canvas.EncodeToPNG();
+        File.WriteAllBytes(filePath, pngData);
+        Debug.Log("✅ Auto-stitched image saved: " + filePath);
+
+        string exportDir = Path.Combine(Application.temporaryCachePath, "AutoStitchExport");
+        if (Directory.Exists(exportDir)) Directory.Delete(exportDir, true);
+        Directory.CreateDirectory(exportDir);
+
+        string exportedPngPath = Path.Combine(exportDir, Path.GetFileName(filePath));
+        File.Copy(filePath, exportedPngPath, true);
+
+        for (int i = 0; i < photoDataList.Count; i++)
+        {
+            string jsonOut = JsonConvert.SerializeObject(
+                photoDataList[i],
+                Formatting.Indented,
+                new JsonSerializerSettings
+                {
+                    ReferenceLoopHandling = ReferenceLoopHandling.Ignore
+                });
+
+            string jsonPath = Path.Combine(exportDir, $"meta_{i}.json");
+            File.WriteAllText(jsonPath, jsonOut);
+        }
+
+        string zipName = "Stitched_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".zip";
+        string zipPath = Path.Combine(Application.persistentDataPath, zipName);
+        if (File.Exists(zipPath)) File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(exportDir, zipPath);
+
+        Debug.Log("📦 Auto ZIP created: " + zipPath);
     }
 
     Texture2D AlignPhoto(Texture2D photo, float angle)
@@ -153,16 +182,11 @@ public class PhotoStitcher : MonoBehaviour
         {
             for (int dy = -searchRange; dy <= searchRange; dy++)
             {
-                float totalDiff = 0f;
-
-                if (horizontalPriority)
-                {
-                    totalDiff = CompareRightLeftEdges(current, previous, dx, dy);
-                }
-                else
-                {
-                    totalDiff = CompareBottomTopEdges(current, previous, dx, dy);
-                }
+                float totalDiff =
+                    CompareRightLeftEdges(current, previous, dx, dy) +
+                    CompareLeftRightEdges(current, previous, dx, dy) +
+                    CompareBottomTopEdges(current, previous, dx, dy) +
+                    CompareTopBottomEdges(current, previous, dx, dy);
 
                 if (totalDiff < minDiff)
                 {
@@ -171,7 +195,7 @@ public class PhotoStitcher : MonoBehaviour
                 }
             }
         }
-
+        
         return bestOffset;
     }
 
@@ -220,6 +244,53 @@ public class PhotoStitcher : MonoBehaviour
 
         return totalDiff;
     }
+    
+    float CompareLeftRightEdges(Texture2D current, Texture2D previous, int offsetX, int offsetY)
+    {
+        int height = Mathf.Min(current.height, previous.height);
+        int width = 5;
+
+        float totalDiff = 0f;
+
+        for (int y = 0; y < height; y++)
+        {
+            int y1 = y + offsetY;
+            if (y1 < 0 || y1 >= height) continue;
+
+            for (int x = 0; x < width; x++)
+            {
+                Color c1 = current.GetPixel(x, y1);
+                Color c2 = previous.GetPixel(previous.width - width + x, y1);
+                totalDiff += Mathf.Abs(c1.r - c2.r) + Mathf.Abs(c1.g - c2.g) + Mathf.Abs(c1.b - c2.b);
+            }
+        }
+
+        return totalDiff;
+    }
+
+    float CompareTopBottomEdges(Texture2D current, Texture2D previous, int offsetX, int offsetY)
+    {
+        int width = Mathf.Min(current.width, previous.width);
+        int height = 5;
+
+        float totalDiff = 0f;
+
+        for (int x = 0; x < width; x++)
+        {
+            int x1 = x + offsetX;
+            if (x1 < 0 || x1 >= width) continue;
+
+            for (int y = 0; y < height; y++)
+            {
+                Color c1 = current.GetPixel(x1, current.height - height + y);
+                Color c2 = previous.GetPixel(x1, y);
+                totalDiff += Mathf.Abs(c1.r - c2.r) + Mathf.Abs(c1.g - c2.g) + Mathf.Abs(c1.b - c2.b);
+            }
+        }
+
+        return totalDiff;
+    }
+
 
     void CopyPhotoToGrid(Texture2D photo, Texture2D canvas, Color[] canvasPixels, int baseX, int baseY)
     {

@@ -11,6 +11,7 @@ using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 using Unity.Collections;
 using TMPro;
+using UnityEngine.SceneManagement;
 
 public class ARCameraCapture : MonoBehaviour
 {
@@ -148,9 +149,9 @@ public class ARCameraCapture : MonoBehaviour
 
         photo = RotateTexture90CW(photo);
 
-        string filename = $"Photo_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+        string filename = $"Photo_{DateTime.Now:yyyyMMdd_HHmmss}.png";
         string path = Path.Combine(Application.persistentDataPath, filename);
-        File.WriteAllBytes(path, photo.EncodeToJPG(95));
+        File.WriteAllBytes(path, photo.EncodeToPNG());
 
         NativeGallery.SaveImageToGallery(path, "ARCameraDemo", filename, (success, outputPath) =>
         {
@@ -206,10 +207,11 @@ public class ARCameraCapture : MonoBehaviour
             combined.Apply();
             galleryButton.image.sprite = Sprite.Create(combined, new Rect(0, 0, combined.width, combined.height), new Vector2(0.5f, 0.5f));
 
-            string combinedName = $"Combined_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+            string combinedName = $"Combined_{DateTime.Now:yyyyMMdd_HHmmss}.png";
             string combinedPath = Path.Combine(Application.persistentDataPath, combinedName);
-            File.WriteAllBytes(combinedPath, combined.EncodeToJPG(95));
+            File.WriteAllBytes(combinedPath, combined.EncodeToPNG());
             NativeGallery.SaveImageToGallery(combinedPath, "ARCameraDemo", combinedName);
+
             ShowPopup("🧵 Collage saved to Gallery");
 
             FinalizeMiniSession(combined, combinedPath);
@@ -260,7 +262,14 @@ public class ARCameraCapture : MonoBehaviour
 
         foreach (Transform child in previewContainer)
             DestroyImmediate(child.gameObject);
-
+        
+        PhotoStitcher stitcher = FindObjectOfType<PhotoStitcher>();
+        if (stitcher != null)
+        {
+            ShowPopup("🧷 Stitching photos...");
+            stitcher.RunStitchExternally(capturedPhotos.ToArray(), sessionPhotos.ToArray());
+        }
+        
         capturedPhotos.Clear();
         sessionPhotos.Clear();
         currentSessionId = Guid.NewGuid().ToString();
