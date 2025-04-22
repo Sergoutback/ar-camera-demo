@@ -20,7 +20,7 @@ public class CameraStatusUI : MonoBehaviour
     public void ShowWaiting()
     {
         SetColors(waitingColor);
-        statusText.text = "🔴 Waiting for tracking...";
+        statusText.text = "Waiting for tracking...";
         positionText.text = "";
         rotationText.text = "";
     }
@@ -31,9 +31,9 @@ public class CameraStatusUI : MonoBehaviour
     public void ShowNoMovement(Vector3 relativePos, Vector3 relativeEuler)
     {
         SetColors(stationaryColor);
-        statusText.text = "🟡 Camera is stationary";
-        positionText.text = $"📍 Offset: {FormatVector(relativePos)}";
-        rotationText.text = $"🔄 Rotation: {FormatVector(relativeEuler)}";
+        statusText.text = "Camera is stationary";
+        positionText.text = $"Offset: {FormatVector(relativePos)}";
+        rotationText.text = $"Rotation: {FormatVector(relativeEuler)}";
     }
 
     /// <summary>
@@ -42,9 +42,9 @@ public class CameraStatusUI : MonoBehaviour
     public void ShowReady(Vector3 relativePos, Vector3 relativeEuler)
     {
         SetColors(readyColor);
-        statusText.text = "🟢 Ready to capture";
-        positionText.text = $"📍 Offset: {FormatVector(relativePos)}";
-        rotationText.text = $"🔄 Rotation: {FormatVector(relativeEuler)}";
+        statusText.text = "Ready to capture";
+        positionText.text = $"Offset: {FormatVector(relativePos)}";
+        rotationText.text = $"Rotation: {FormatVector(relativeEuler)}";
     }
 
     private void SetColors(Color color)

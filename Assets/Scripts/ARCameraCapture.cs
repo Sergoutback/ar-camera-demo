@@ -62,7 +62,12 @@ public class ARCameraCapture : MonoBehaviour
 
     void Update()
     {
-        if (cameraTransform == null || !baseRotationSet)
+        if (cameraTransform == null)
+        {
+            cameraStatusUI.ShowWaiting();
+            return;
+        }
+        if (!baseRotationSet)
         {
             cameraStatusUI.ShowWaiting();
             return;
@@ -207,20 +212,61 @@ public class ARCameraCapture : MonoBehaviour
             NativeGallery.SaveImageToGallery(combinedPath, "ARCameraDemo", combinedName);
             ShowPopup("🧵 Collage saved to Gallery");
 
-            sessionPhotos.Add(new PhotoMetadata
-            {
-                photoId = Guid.NewGuid().ToString(),
-                sessionId = currentSessionId,
-                timestamp = DateTime.Now.ToString("o"),
-                path = combinedPath,
-                width = combined.width,
-                height = combined.height,
-                quality = 95
-            });
-
-            SaveSessionMetadata();
+            FinalizeMiniSession(combined, combinedPath);
         }
     }
+    private void FinalizeMiniSession(Texture2D combined, string combinedPath)
+    {
+        sessionPhotos.Add(new PhotoMetadata
+        {
+            photoId = Guid.NewGuid().ToString(),
+            sessionId = currentSessionId,
+            timestamp = DateTime.Now.ToString("o"),
+            path = combinedPath,
+            width = combined.width,
+            height = combined.height,
+            quality = 95
+        });
+
+        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
+        string sessionFile = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.json");
+        File.WriteAllText(sessionFile, sessionJson);
+
+        string exportDir = Path.Combine(Application.temporaryCachePath, $"Session_{currentSessionId}_Export");
+        Directory.CreateDirectory(exportDir);
+
+        foreach (var meta in sessionPhotos)
+        {
+            if (File.Exists(meta.path))
+                File.Copy(meta.path, Path.Combine(exportDir, Path.GetFileName(meta.path)), true);
+        }
+
+        File.Copy(sessionFile, Path.Combine(exportDir, Path.GetFileName(sessionFile)), true);
+
+        string zipPath = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.zip");
+        if (File.Exists(zipPath)) File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(exportDir, zipPath);
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    AndroidMediaScanner.ScanFile(zipPath);
+#endif
+        ShowPopup("📦 Mini-session exported to ZIP");
+
+        Debug.Log("📦 Mini-session exported to ZIP: " + zipPath);
+
+        foreach (var obj in previewImages)
+            Destroy(obj);
+        previewImages.Clear();
+
+        foreach (Transform child in previewContainer)
+            DestroyImmediate(child.gameObject);
+
+        capturedPhotos.Clear();
+        sessionPhotos.Clear();
+        currentSessionId = Guid.NewGuid().ToString();
+    }
+
+
 
     private void SaveSessionMetadata()
     {
@@ -291,7 +337,6 @@ public class ARCameraCapture : MonoBehaviour
     public void StartNewSession()
     {
         baseRotationSet = false;
-
         currentSessionId = Guid.NewGuid().ToString();
 
         foreach (var obj in previewImages)
@@ -301,7 +346,7 @@ public class ARCameraCapture : MonoBehaviour
         sessionPhotos.Clear();
 
         foreach (Transform child in previewContainer)
-            Destroy(child.gameObject);
+            DestroyImmediate(child.gameObject);
 
         galleryButton.image.sprite = null;
     }
