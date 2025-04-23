@@ -1,11 +1,13 @@
 using UnityEngine;
 using TMPro;
 using System.Collections;
+using UnityEngine.UI;
 
 public class PopupLogger : MonoBehaviour
 {
     [SerializeField] private GameObject popup;
     [SerializeField] private TextMeshProUGUI popupText;
+    [SerializeField] private Button closeButton;
 
     private static PopupLogger _instance;
 
@@ -32,9 +34,22 @@ public class PopupLogger : MonoBehaviour
         {
             popup.SetActive(true);
             popupText.text = message;
-            StartCoroutine(HidePopupAfterDelay(2f));
+
+            if (closeButton != null)
+            {
+                closeButton.gameObject.SetActive(true);
+                closeButton.onClick.RemoveAllListeners();
+                closeButton.onClick.AddListener(HidePopup);
+            }
         }
     }
+
+    private void HidePopup()
+    {
+        if (popup != null)
+            popup.SetActive(false);
+    }
+
 
     private IEnumerator HidePopupAfterDelay(float delay)
     {

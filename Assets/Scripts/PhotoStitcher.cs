@@ -20,6 +20,7 @@ public class PhotoStitcher : MonoBehaviour
 
     public void RunStitchExternally(Texture2D[] inputPhotos, PhotoMetadata[] inputMeta)
     {
+        PopupLogger.Log($"RunStitchExternally → photos: {inputPhotos.Length}, meta: {inputMeta.Length}");
         photos = inputPhotos;
         photoDataList = new List<PhotoMetadata>(inputMeta);
         StitchPhotos();
@@ -47,63 +48,61 @@ public class PhotoStitcher : MonoBehaviour
     }
 #endif
 
-void StitchPhotos()
-{
-    PopupLogger.Log($"[PhotoStitcher] Starting stitch, photos: {photos?.Length}, meta: {photoDataList?.Count}");
-
-    if (photos == null || photoDataList == null || photos.Length == 0 || photoDataList.Count == 0)
+    void StitchPhotos()
     {
-        PopupLogger.Log("[PhotoStitcher] Nothing to stitch");
-        return;
-    }
+        string filePath = "";
 
-    int photoWidth = photos[0].width;
-    int photoHeight = photos[0].height;
+        try
+        {
+            PopupLogger.Log($"[StitchPhotos] Start. photos: {photos?.Length}, meta: {photoDataList?.Count}");
 
-    List<Vector2> projectedPositions = new List<Vector2>();
-    float minX = float.MaxValue, maxX = float.MinValue;
-    float minY = float.MaxValue, maxY = float.MinValue;
+            if (photos == null || photoDataList == null || photos.Length == 0 || photoDataList.Count == 0)
+            {
+                PopupLogger.Log("[PhotoStitcher] Nothing to stitch");
+                return;
+            }
 
-    foreach (var meta in photoDataList)
-    {
-        Vector2 pos = new Vector2(
-            meta.relativePosition.x * positionScale,
-            meta.relativePosition.z * positionScale
-        );
-        projectedPositions.Add(pos);
-        minX = Mathf.Min(minX, pos.x);
-        maxX = Mathf.Max(maxX, pos.x);
-        minY = Mathf.Min(minY, pos.y);
-        maxY = Mathf.Max(maxY, pos.y);
-    }
+            int photoWidth = photos[0].width;
+            int photoHeight = photos[0].height;
+            int cols = 4;
+            int rows = 2;
 
-    int canvasWidth = Mathf.CeilToInt(maxX - minX) + photoWidth;
-    int canvasHeight = Mathf.CeilToInt(maxY - minY) + photoHeight;
+            int canvasWidth = photoWidth * cols;
+            int canvasHeight = photoHeight * rows;
 
-    Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
-    Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
-    for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.black;
+            Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
+            Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
+            for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.black;
 
-    for (int i = 0; i < photos.Length; i++)
-    {
-        Texture2D photo = photos[i];
-        Quaternion rot = Quaternion.Euler(photoDataList[i].relativeEulerAngles);
-        Texture2D rotated = Apply3DRotation(photo, rot);
+            for (int i = 0; i < photos.Length; i++)
+            {
+                if (i >= photoDataList.Count) continue;
 
-        Vector2 projected = projectedPositions[i];
-        int baseX = Mathf.RoundToInt(projected.x - minX);
-        int baseY = Mathf.RoundToInt(projected.y - minY);
+                Texture2D photo = photos[i];
+                Quaternion rot = Quaternion.Euler(photoDataList[i].relativeEulerAngles);
+                Texture2D rotated = Apply3DRotation(photo, rot);
 
-        CopyPhotoToGrid(rotated, canvas, canvasPixels, baseX, baseY);
-    }
+                int col = i % cols;
+                int row = i / cols;
+                int baseX = col * photoWidth;
+                int baseY = (rows - 1 - row) * photoHeight;
 
-    canvas.SetPixels(canvasPixels);
-    canvas.Apply();
+                CopyPhotoToGrid(rotated, canvas, canvasPixels, baseX, baseY);
+            }
 
-    string filePath = Path.Combine(Application.persistentDataPath, "StitchedByPosition_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
-    byte[] pngData = canvas.EncodeToPNG();
-    File.WriteAllBytes(filePath, pngData);
-    PopupLogger.Log($"File written: {filePath}");
+            canvas.SetPixels(canvasPixels);
+            canvas.Apply();
+
+            filePath = Path.Combine(Application.persistentDataPath,
+                "StitchedGrid_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
+            byte[] pngData = canvas.EncodeToPNG();
+            File.WriteAllBytes(filePath, pngData);
+        }
+        catch (Exception e)
+        {
+            PopupLogger.Log("Stitch failed: " + e.Message, true);
+        }
+
 #if UNITY_ANDROID && !UNITY_EDITOR
     string galleryDir = Path.Combine("/storage/emulated/0/Pictures/ARCameraDemo/");
     if (!Directory.Exists(galleryDir)) Directory.CreateDirectory(galleryDir);
@@ -112,10 +111,12 @@ void StitchPhotos()
     string finalPath = Path.Combine(galleryDir, finalName);
 
     File.Copy(filePath, finalPath, true);
-    NativeGallery.SaveImageToGallery(finalPath, "ARCameraDemo", Path.GetFileName(finalPath));
-    PopupLogger.Log("📷 Stitched image saved to gallery: " + finalPath);
+    AndroidMediaScanner.ScanFile(finalPath);
+    NativeGallery.SaveImageToGallery(finalPath, "ARCameraDemo", finalName);
 #endif
-}
+
+        PopupLogger.Log("Stitched grid saved to gallery.");
+    }
 
 
     Texture2D RotateTexture(Texture2D original, float angleDegrees)
@@ -152,7 +153,7 @@ void StitchPhotos()
         rotated.Apply();
         return rotated;
     }
-    
+
     Texture2D Apply3DRotation(Texture2D source, Quaternion rotation)
     {
         int width = source.width;
@@ -198,9 +199,6 @@ void StitchPhotos()
 
         return result;
     }
-
-
-
 
 
     Texture2D AlignPhotoPerspective(Texture2D source, float angle)
@@ -260,7 +258,7 @@ void StitchPhotos()
                 }
             }
         }
-        
+
         return bestOffset;
     }
 
@@ -309,7 +307,7 @@ void StitchPhotos()
 
         return totalDiff;
     }
-    
+
     float CompareLeftRightEdges(Texture2D current, Texture2D previous, int offsetX, int offsetY)
     {
         int height = Mathf.Min(current.height, previous.height);

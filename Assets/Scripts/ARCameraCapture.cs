@@ -21,6 +21,7 @@ public class ARCameraCapture : MonoBehaviour
     [SerializeField] private Button galleryButton;
     [SerializeField] private Button exportZipButton;
     [SerializeField] private Button stitchButton;
+    [SerializeField] private Button stitchFromJsonButton;
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private CameraStatusUI cameraStatusUI;
     [SerializeField] private float autoStitchDelay = 0.5f;
@@ -31,10 +32,13 @@ public class ARCameraCapture : MonoBehaviour
     private string lastSavedImagePath;
     private string currentSessionId;
 
+    private Texture2D delayedCombined;
+    private string delayedCombinedPath;
+
     private Quaternion baseGyroRotation;
     private Vector3 basePosition;
     private bool baseRotationSet = false;
-    
+
     private bool sessionStarted = false;
     private bool readyToFinalize = false;
 
@@ -58,7 +62,8 @@ public class ARCameraCapture : MonoBehaviour
         galleryButton.onClick.AddListener(OpenSystemGallery);
         //exportZipButton.onClick.AddListener(OnExportSessionZipButton);
         fotoButton.onClick.AddListener(CapturePhoto);
-        //stitchButton.onClick.AddListener(OnStitchPhotosManually);
+        stitchButton.onClick.AddListener(OnStitchPhotosManually);
+        stitchFromJsonButton.onClick.AddListener(OnStitchFromLastJson);
 
 
         Input.gyro.enabled = true;
@@ -89,6 +94,7 @@ public class ARCameraCapture : MonoBehaviour
             cameraStatusUI.ShowWaiting();
             return;
         }
+
         if (!baseRotationSet)
         {
             cameraStatusUI.ShowWaiting();
@@ -161,7 +167,8 @@ public class ARCameraCapture : MonoBehaviour
             var rawData = new NativeArray<byte>(image.GetConvertedDataSize(conversionParams), Allocator.Temp);
             image.Convert(conversionParams, rawData);
 
-            photo = new Texture2D(conversionParams.outputDimensions.x, conversionParams.outputDimensions.y, conversionParams.outputFormat, false);
+            photo = new Texture2D(conversionParams.outputDimensions.x, conversionParams.outputDimensions.y,
+                conversionParams.outputFormat, false);
             photo.LoadRawTextureData(rawData);
             photo.Apply();
 
@@ -180,7 +187,7 @@ public class ARCameraCapture : MonoBehaviour
         });
 
         AddPhotoToPreview(photo, path);
-        PopupLogger.Log("Photo saved to Gallery");
+        PopupLogger.Log($"Saved photo #{capturedPhotos.Count}");
     }
 
     private void AddPhotoToPreview(Texture2D photo, string imagePath)
@@ -219,26 +226,37 @@ public class ARCameraCapture : MonoBehaviour
         if (capturedPhotos.Count == 8 && sessionPhotos.Count == 8 && !readyToFinalize)
         {
             readyToFinalize = true;
-            
+
             Texture2D combined = new Texture2D(photo.width * 4, photo.height * 2);
             for (int i = 0; i < 8; i++)
             {
                 int col = i % 4;
                 int row = 1 - (i / 4);
-                combined.SetPixels(col * photo.width, row * photo.height, photo.width, photo.height, capturedPhotos[i].GetPixels());
+                combined.SetPixels(col * photo.width, row * photo.height, photo.width, photo.height,
+                    capturedPhotos[i].GetPixels());
             }
+
             combined.Apply();
 
-            galleryButton.image.sprite = Sprite.Create(combined, new Rect(0, 0, combined.width, combined.height), new Vector2(0.5f, 0.5f));
+            galleryButton.image.sprite = Sprite.Create(combined, new Rect(0, 0, combined.width, combined.height),
+                new Vector2(0.5f, 0.5f));
             string combinedName = $"Combined_{DateTime.Now:yyyyMMdd_HHmmss}.png";
             string combinedPath = Path.Combine(Application.persistentDataPath, combinedName);
             File.WriteAllBytes(combinedPath, combined.EncodeToPNG());
             NativeGallery.SaveImageToGallery(combinedPath, "ARCameraDemo", combinedName);
 
-            PopupLogger.Log("Collage saved to Gallery");
+            PopupLogger.Log("Collage preview saved to Gallery");
 
-            StartCoroutine(FinalizeMiniSessionWithDelay(combined, combinedPath));
+            delayedCombined = combined;
+            delayedCombinedPath = combinedPath;
+            Invoke(nameof(DelayedFinalize), 0.3f);
         }
+    }
+
+
+    private void DelayedFinalize()
+    {
+        StartCoroutine(FinalizeMiniSessionWithDelay(delayedCombined, delayedCombinedPath));
     }
 
     private IEnumerator FinalizeMiniSessionWithDelay(Texture2D combined, string combinedPath)
@@ -248,10 +266,11 @@ public class ARCameraCapture : MonoBehaviour
 
         if (capturedPhotos.Count < 8 || sessionPhotos.Count < 8)
         {
-            PopupLogger.Log($"FinalizeMiniSession called too early. captured: {capturedPhotos.Count}, session: {sessionPhotos.Count}");
+            PopupLogger.Log(
+                $"FinalizeMiniSession called too early. captured: {capturedPhotos.Count}, session: {sessionPhotos.Count}");
             yield break;
         }
-        
+
         if (!readyToFinalize)
         {
             PopupLogger.Log("FinalizeMiniSessionWithDelay called, but not ready.");
@@ -261,33 +280,20 @@ public class ARCameraCapture : MonoBehaviour
         FinalizeMiniSession(combined, combinedPath);
     }
 
-
-
-
     private void FinalizeMiniSession(Texture2D combined, string combinedPath)
     {
         if (!readyToFinalize || capturedPhotos.Count < 8 || sessionPhotos.Count < 8)
         {
-            PopupLogger.Log($"FinalizeMiniSession aborted. captured: {capturedPhotos.Count}, session: {sessionPhotos.Count}");
+            PopupLogger.Log(
+                $"FinalizeMiniSession aborted. captured: {capturedPhotos.Count}, session: {sessionPhotos.Count}");
             return;
         }
-
-        sessionPhotos.Add(new PhotoMetadata
-        {
-            photoId = Guid.NewGuid().ToString(),
-            sessionId = currentSessionId,
-            timestamp = DateTime.Now.ToString("o"),
-            path = combinedPath,
-            width = combined.width,
-            height = combined.height,
-            quality = 95
-        });
 
         string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
         string sessionFile = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.json");
         File.WriteAllText(sessionFile, sessionJson);
 
-        string exportDir = Path.Combine(Application.temporaryCachePath, $"Session_{currentSessionId}_Export");
+        string exportDir = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}_Export");
         Directory.CreateDirectory(exportDir);
 
         foreach (var meta in sessionPhotos)
@@ -305,8 +311,6 @@ public class ARCameraCapture : MonoBehaviour
 #if UNITY_ANDROID && !UNITY_EDITOR
     AndroidMediaScanner.ScanFile(zipPath);
 #endif
-        PopupLogger.Log("Mini-session exported to ZIP");
-
         PopupLogger.Log("Mini-session exported to ZIP: " + zipPath);
 
         foreach (var obj in previewImages)
@@ -315,7 +319,7 @@ public class ARCameraCapture : MonoBehaviour
 
         foreach (Transform child in previewContainer)
             DestroyImmediate(child.gameObject);
-        
+
         PhotoStitcher stitcher = FindObjectOfType<PhotoStitcher>();
         if (stitcher != null)
         {
@@ -334,7 +338,7 @@ public class ARCameraCapture : MonoBehaviour
                 PopupLogger.Log("Skipping stitch: photos or metadata not ready");
             }
         }
-        
+
         capturedPhotos.Clear();
         sessionPhotos.Clear();
         readyToFinalize = false;
@@ -342,6 +346,52 @@ public class ARCameraCapture : MonoBehaviour
     }
 
 
+    public void OnStitchFromLastJson()
+    {
+        capturedPhotos.Clear();
+        sessionPhotos.Clear();
+
+        string[] jsonFiles = Directory.GetFiles(Application.persistentDataPath, "Session_*.json");
+        if (jsonFiles.Length == 0)
+        {
+            PopupLogger.Log("No previous session JSON found.");
+            return;
+        }
+
+        string latestJson = jsonFiles[jsonFiles.Length - 1];
+        string jsonText = File.ReadAllText(latestJson);
+        PhotoStitcher.PhotoMetadataWrapper wrapper = JsonUtility.FromJson<PhotoStitcher.PhotoMetadataWrapper>(jsonText);
+
+        if (wrapper.Items == null || wrapper.Items.Length == 0)
+        {
+            PopupLogger.Log("Failed to parse JSON.");
+            return;
+        }
+
+        int loaded = 0;
+
+        foreach (var meta in wrapper.Items)
+        {
+            if (!File.Exists(meta.path)) continue;
+
+            byte[] data = File.ReadAllBytes(meta.path);
+            Texture2D tex = new Texture2D(2, 2);
+            if (!tex.LoadImage(data)) continue;
+
+            capturedPhotos.Add(tex);
+            sessionPhotos.Add(meta);
+            loaded++;
+        }
+
+        if (loaded == 0)
+        {
+            PopupLogger.Log("No valid photos found in session.");
+        }
+        else
+        {
+            PopupLogger.Log($"Loaded {loaded} photo(s) from session. Ready to stitch.");
+        }
+    }
 
     private void SaveSessionMetadata()
     {
@@ -371,29 +421,41 @@ public class ARCameraCapture : MonoBehaviour
 
     public void OnExportSessionZipButton()
     {
-        string exportDir = Path.Combine(Application.temporaryCachePath, $"Session_{currentSessionId}_Export");
+        string exportDir = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}_Export");
         Directory.CreateDirectory(exportDir);
+
+        int copiedCount = 0;
 
         foreach (var meta in sessionPhotos)
         {
             if (File.Exists(meta.path))
-                File.Copy(meta.path, Path.Combine(exportDir, Path.GetFileName(meta.path)), true);
-
-            string jsonPath = Path.ChangeExtension(meta.path, ".json");
-            if (File.Exists(jsonPath))
-                File.Copy(jsonPath, Path.Combine(exportDir, Path.GetFileName(jsonPath)), true);
+            {
+                string fileName = Path.GetFileName(meta.path);
+                File.Copy(meta.path, Path.Combine(exportDir, fileName), true);
+                copiedCount++;
+            }
+            else
+            {
+                PopupLogger.Log($"Skipped missing photo: {meta.path}");
+            }
         }
 
         string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
-        File.WriteAllText(Path.Combine(exportDir, $"Session_{currentSessionId}.json"), sessionJson);
+        string jsonFile = Path.Combine(exportDir, $"Session_{currentSessionId}.json");
+        File.WriteAllText(jsonFile, sessionJson);
 
         string zipPath = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.zip");
         if (File.Exists(zipPath)) File.Delete(zipPath);
         ZipFile.CreateFromDirectory(exportDir, zipPath);
+        Directory.Delete(exportDir, true);
 
-        AndroidMediaScanner.ScanFile(zipPath);
-        PopupLogger.Log("📦 Session exported to ZIP");
+#if UNITY_ANDROID && !UNITY_EDITOR
+    AndroidMediaScanner.ScanFile(zipPath);
+#endif
+
+        PopupLogger.Log($"Exported ZIP with {copiedCount} photos to: {zipPath}");
     }
+
     public void StartNewSession()
     {
         baseRotationSet = false;
