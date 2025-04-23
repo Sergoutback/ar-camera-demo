@@ -25,7 +25,7 @@ public class PhotoStitcher : MonoBehaviour
     }
 
 #if UNITY_EDITOR
-    [ContextMenu("🔧 Test Stitch From Inspector")]
+    [ContextMenu("Test Stitch From Inspector")]
     public void TestStitchFromInspector()
     {
         if (jsonFile == null || photoTextures == null || photoTextures.Length == 0)
@@ -59,15 +59,17 @@ public class PhotoStitcher : MonoBehaviour
 
         Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
         Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
-        for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.white;
+        for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.black;
 
         for (int i = 0; i < photos.Length; i++)
         {
             if (i >= photoDataList.Count) continue;
 
             Texture2D photo = photos[i];
-            float angle = photoDataList[i].relativeEulerAngles.z + photoDataList[i].relativeEulerAngles.y;
-            Texture2D aligned = AlignPhotoPerspective(photo, angle);
+            Quaternion rot = Quaternion.Euler(photoDataList[i].relativeEulerAngles);
+            Debug.Log($"[Stitcher] Photo {i} rotation: {rot.eulerAngles}");
+            Texture2D rotated = Apply3DRotation(photo, rot);
+
 
             int col = i % cols;
             int row = i / cols;
@@ -75,48 +77,121 @@ public class PhotoStitcher : MonoBehaviour
             int baseX = col * singleWidth;
             int baseY = (rows - 1 - row) * singleHeight;
 
-            CopyPhotoToGrid(
-                aligned,
-                canvas,
-                canvasPixels,
-                baseX,
-                baseY
-            );
+            CopyPhotoToGrid(rotated, canvas, canvasPixels, baseX, baseY);
         }
 
         canvas.SetPixels(canvasPixels);
         canvas.Apply();
 
-        string filePath = Path.Combine(Application.persistentDataPath, "StitchedGrid_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
+        string filePath = Path.Combine(Application.persistentDataPath, "StitchedRotatedGrid_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
         byte[] pngData = canvas.EncodeToPNG();
         File.WriteAllBytes(filePath, pngData);
-        Debug.Log("✅ Auto-stitched image saved: " + filePath);
+        Debug.Log("Grid with rotation saved: " + filePath);
+        
+#if UNITY_ANDROID && !UNITY_EDITOR
+        AndroidMediaScanner.ScanFile(filePath);
 
-        string exportDir = Path.Combine(Application.temporaryCachePath, "AutoStitchExport");
-        if (Directory.Exists(exportDir)) Directory.Delete(exportDir, true);
-        Directory.CreateDirectory(exportDir);
-
-        string exportedPngPath = Path.Combine(exportDir, Path.GetFileName(filePath));
-        File.Copy(filePath, exportedPngPath, true);
-
-        for (int i = 0; i < photoDataList.Count; i++)
+        using (AndroidJavaClass intentClass = new AndroidJavaClass("android.content.Intent"))
+        using (AndroidJavaObject intent = new AndroidJavaObject("android.content.Intent"))
+        using (AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+        using (AndroidJavaObject currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
+        using (AndroidJavaClass uriClass = new AndroidJavaClass("android.net.Uri"))
+        using (AndroidJavaObject fileObj = new AndroidJavaObject("java.io.File", filePath))
+        using (AndroidJavaObject uri = uriClass.CallStatic<AndroidJavaObject>("fromFile", fileObj))
         {
-            string jsonOut = JsonConvert.SerializeObject(
-                photoDataList[i],
-                Formatting.Indented,
-                new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore }
-            );
-            string jsonPath = Path.Combine(exportDir, $"meta_{i}.json");
-            File.WriteAllText(jsonPath, jsonOut);
+            intent.Call<AndroidJavaObject>("setAction", intentClass.GetStatic<string>("ACTION_VIEW"));
+            intent.Call<AndroidJavaObject>("setDataAndType", uri, "image/*");
+            intent.Call<AndroidJavaObject>("addFlags", intentClass.GetStatic<int>("FLAG_ACTIVITY_NEW_TASK"));
+            currentActivity.Call("startActivity", intent);
+        }
+#endif
+
+    }
+
+    Texture2D RotateTexture(Texture2D original, float angleDegrees)
+    {
+        int width = original.width;
+        int height = original.height;
+        Texture2D rotated = new Texture2D(width, height);
+
+        float angleRad = angleDegrees * Mathf.Deg2Rad;
+        float cos = Mathf.Cos(angleRad);
+        float sin = Mathf.Sin(angleRad);
+
+        int x0 = width / 2;
+        int y0 = height / 2;
+
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                int dx = x - x0;
+                int dy = y - y0;
+
+                int srcX = Mathf.RoundToInt(cos * dx + sin * dy) + x0;
+                int srcY = Mathf.RoundToInt(-sin * dx + cos * dy) + y0;
+
+                Color color = Color.black;
+                if (srcX >= 0 && srcX < width && srcY >= 0 && srcY < height)
+                    color = original.GetPixel(srcX, srcY);
+
+                rotated.SetPixel(x, y, color);
+            }
         }
 
-        string zipName = "Stitched_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".zip";
-        string zipPath = Path.Combine(Application.persistentDataPath, zipName);
-        if (File.Exists(zipPath)) File.Delete(zipPath);
-        ZipFile.CreateFromDirectory(exportDir, zipPath);
-
-        Debug.Log("📦 Auto ZIP created: " + zipPath);
+        rotated.Apply();
+        return rotated;
     }
+    
+    Texture2D Apply3DRotation(Texture2D source, Quaternion rotation)
+    {
+        int width = source.width;
+        int height = source.height;
+
+        RenderTexture rt = RenderTexture.GetTemporary(width, height, 24);
+        RenderTexture prevRT = RenderTexture.active;
+
+        GameObject renderCamObj = new GameObject("RenderCam");
+        Camera renderCam = renderCamObj.AddComponent<Camera>();
+        renderCam.orthographic = true;
+        renderCam.orthographicSize = 1;
+        renderCam.clearFlags = CameraClearFlags.SolidColor;
+        renderCam.backgroundColor = Color.black;
+        renderCam.targetTexture = rt;
+        renderCam.aspect = (float)width / height;
+
+        GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.transform.localScale = new Vector3(2, 2, 1);
+        Material quadMat = new Material(Shader.Find("Unlit/Texture"));
+        if (quadMat == null)
+            Debug.LogError("Shader 'Unlit/Texture' not found!");
+        quadMat.mainTexture = source;
+        quad.GetComponent<MeshRenderer>().material = quadMat;
+
+        quad.transform.rotation = rotation;
+        quad.transform.position = Vector3.zero;
+        renderCam.transform.position = new Vector3(0, 0, -3);
+        renderCam.transform.LookAt(Vector3.zero);
+
+        renderCam.Render();
+
+        RenderTexture.active = rt;
+        Texture2D result = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        result.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+        result.Apply();
+
+        RenderTexture.active = prevRT;
+
+        UnityEngine.Object.DestroyImmediate(renderCamObj);
+        UnityEngine.Object.DestroyImmediate(quad);
+        RenderTexture.ReleaseTemporary(rt);
+
+        return result;
+    }
+
+
+
+
 
     Texture2D AlignPhotoPerspective(Texture2D source, float angle)
     {

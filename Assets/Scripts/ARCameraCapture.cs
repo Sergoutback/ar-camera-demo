@@ -20,10 +20,13 @@ public class ARCameraCapture : MonoBehaviour
     [SerializeField] private Button fotoButton;
     [SerializeField] private Button galleryButton;
     [SerializeField] private Button exportZipButton;
+    [SerializeField] private Button stitchButton;
     [SerializeField] private GameObject popup;
     [SerializeField] private TextMeshProUGUI popupText;
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private CameraStatusUI cameraStatusUI;
+    [SerializeField] private float autoStitchDelay = 0.5f;
+
 
     private List<Texture2D> capturedPhotos = new List<Texture2D>();
     private List<GameObject> previewImages = new List<GameObject>();
@@ -56,10 +59,29 @@ public class ARCameraCapture : MonoBehaviour
         galleryButton.onClick.AddListener(OpenSystemGallery);
         exportZipButton.onClick.AddListener(OnExportSessionZipButton);
         fotoButton.onClick.AddListener(CapturePhoto);
+        stitchButton.onClick.AddListener(OnStitchPhotosManually);
+
 
         Input.gyro.enabled = true;
         StartCoroutine(UpdateLocation());
     }
+
+    public void OnStitchPhotosManually()
+    {
+        if (capturedPhotos.Count == 0 || sessionPhotos.Count == 0)
+        {
+            ShowPopup("No photos to stitch.");
+            return;
+        }
+
+        PhotoStitcher stitcher = FindObjectOfType<PhotoStitcher>();
+        if (stitcher != null)
+        {
+            ShowPopup("Stitching photos...");
+            stitcher.RunStitchExternally(capturedPhotos.ToArray(), sessionPhotos.ToArray());
+        }
+    }
+
 
     void Update()
     {
@@ -159,7 +181,7 @@ public class ARCameraCapture : MonoBehaviour
         });
 
         AddPhotoToPreview(photo, path);
-        ShowPopup("📸 Photo saved to Gallery");
+        ShowPopup("Photo saved to Gallery");
     }
 
     private void AddPhotoToPreview(Texture2D photo, string imagePath)
@@ -205,18 +227,27 @@ public class ARCameraCapture : MonoBehaviour
                 combined.SetPixels(col * photo.width, row * photo.height, photo.width, photo.height, capturedPhotos[i].GetPixels());
             }
             combined.Apply();
-            galleryButton.image.sprite = Sprite.Create(combined, new Rect(0, 0, combined.width, combined.height), new Vector2(0.5f, 0.5f));
 
+            galleryButton.image.sprite = Sprite.Create(combined, new Rect(0, 0, combined.width, combined.height), new Vector2(0.5f, 0.5f));
             string combinedName = $"Combined_{DateTime.Now:yyyyMMdd_HHmmss}.png";
             string combinedPath = Path.Combine(Application.persistentDataPath, combinedName);
             File.WriteAllBytes(combinedPath, combined.EncodeToPNG());
             NativeGallery.SaveImageToGallery(combinedPath, "ARCameraDemo", combinedName);
 
-            ShowPopup("🧵 Collage saved to Gallery");
+            ShowPopup("Collage saved to Gallery");
 
-            FinalizeMiniSession(combined, combinedPath);
+            StartCoroutine(FinalizeMiniSessionWithDelay(combined, combinedPath));
         }
     }
+
+    private IEnumerator FinalizeMiniSessionWithDelay(Texture2D combined, string combinedPath)
+    {
+        yield return new WaitForSeconds(autoStitchDelay);
+
+        FinalizeMiniSession(combined, combinedPath);
+    }
+
+
     private void FinalizeMiniSession(Texture2D combined, string combinedPath)
     {
         sessionPhotos.Add(new PhotoMetadata
@@ -252,9 +283,9 @@ public class ARCameraCapture : MonoBehaviour
 #if UNITY_ANDROID && !UNITY_EDITOR
     AndroidMediaScanner.ScanFile(zipPath);
 #endif
-        ShowPopup("📦 Mini-session exported to ZIP");
+        ShowPopup("Mini-session exported to ZIP");
 
-        Debug.Log("📦 Mini-session exported to ZIP: " + zipPath);
+        Debug.Log("Mini-session exported to ZIP: " + zipPath);
 
         foreach (var obj in previewImages)
             Destroy(obj);
@@ -266,7 +297,7 @@ public class ARCameraCapture : MonoBehaviour
         PhotoStitcher stitcher = FindObjectOfType<PhotoStitcher>();
         if (stitcher != null)
         {
-            ShowPopup("🧷 Stitching photos...");
+            ShowPopup("Stitching photos...");
             stitcher.RunStitchExternally(capturedPhotos.ToArray(), sessionPhotos.ToArray());
         }
         
@@ -385,7 +416,7 @@ public class ARCameraCapture : MonoBehaviour
 #if UNITY_ANDROID && !UNITY_EDITOR
         try
         {
-            ShowPopup("📁 Opening system gallery...");
+            ShowPopup("Opening system gallery...");
 
             using (AndroidJavaClass intentClass = new AndroidJavaClass("android.content.Intent"))
             using (AndroidJavaObject intent = new AndroidJavaObject("android.content.Intent"))

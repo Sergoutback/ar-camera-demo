@@ -490,16 +490,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   positionScale: 40
   directionBias: 10
-  jsonFile: {fileID: 4900000, guid: d7b9e32ef3c220843aef34e6c5466e2d, type: 3}
+  jsonFile: {fileID: 4900000, guid: a539234db8421a34683a671c9f1870d0, type: 3}
   photoTextures:
-  - {fileID: 2800000, guid: 88cdb00fb52e4c24d82770e7e54663ef, type: 3}
-  - {fileID: 2800000, guid: a2900393493284f4d9fcda29d2560367, type: 3}
-  - {fileID: 2800000, guid: 7217c800fd0240944b4886599bb1889b, type: 3}
-  - {fileID: 2800000, guid: 145ac38d5908c2e4db117db3d25913f2, type: 3}
-  - {fileID: 2800000, guid: 38af353a14df07545b15b6665a214d61, type: 3}
-  - {fileID: 2800000, guid: 97a0b4b14cc953845a1408a352d191a8, type: 3}
-  - {fileID: 2800000, guid: 14e06553dac4ae94da4f14441e113e8a, type: 3}
-  - {fileID: 2800000, guid: 748ac2fa1a4a66d43b393336acb9d77b, type: 3}
+  - {fileID: 2800000, guid: 95669ffe60272ed439540253a345e138, type: 3}
+  - {fileID: 2800000, guid: 595c487dc162dd546871cec3e11c60bf, type: 3}
+  - {fileID: 2800000, guid: 0491b69ed9c051b4ebfddc1ae8208d14, type: 3}
+  - {fileID: 2800000, guid: f9d85bff2ffcab34f83e167f16b756af, type: 3}
+  - {fileID: 2800000, guid: 2d5bb11557a839d488b4d3bb682351bc, type: 3}
+  - {fileID: 2800000, guid: 37a55866876d3314aac16a2a6a85112c, type: 3}
+  - {fileID: 2800000, guid: 359da8c6cbf24014cbf47ca9c34830a6, type: 3}
+  - {fileID: 2800000, guid: 9040aa73c08f32145a45dda92d268782, type: 3}
 --- !u!4 &622613887
 Transform:
   m_ObjectHideFlags: 0
@@ -648,7 +648,7 @@ GameObject:
   - component: {fileID: 725155966}
   - component: {fileID: 725155965}
   m_Layer: 5
-  m_Name: OnExportSessionZipButton
+  m_Name: OnStitchButton
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1128,11 +1128,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Export
-
-    Session
-
-    Zip'
+  m_text: Stitch
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -1456,10 +1452,12 @@ MonoBehaviour:
   fotoButton: {fileID: 660465544}
   galleryButton: {fileID: 1029107465}
   exportZipButton: {fileID: 725155965}
+  stitchButton: {fileID: 0}
   popup: {fileID: 1747015809}
   popupText: {fileID: 868625283}
   cameraTransform: {fileID: 1524265004}
   cameraStatusUI: {fileID: 367520829}
+  autoStitchDelay: 0.5
 --- !u!1 &1747015809
 GameObject:
   m_ObjectHideFlags: 0
