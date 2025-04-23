@@ -21,8 +21,6 @@ public class ARCameraCapture : MonoBehaviour
     [SerializeField] private Button galleryButton;
     [SerializeField] private Button exportZipButton;
     [SerializeField] private Button stitchButton;
-    [SerializeField] private GameObject popup;
-    [SerializeField] private TextMeshProUGUI popupText;
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private CameraStatusUI cameraStatusUI;
     [SerializeField] private float autoStitchDelay = 0.5f;
@@ -38,6 +36,7 @@ public class ARCameraCapture : MonoBehaviour
     private bool baseRotationSet = false;
     
     private bool sessionStarted = false;
+    private bool readyToFinalize = false;
 
     private float currentLatitude;
     private float currentLongitude;
@@ -57,9 +56,9 @@ public class ARCameraCapture : MonoBehaviour
         currentSessionId = Guid.NewGuid().ToString();
 
         galleryButton.onClick.AddListener(OpenSystemGallery);
-        exportZipButton.onClick.AddListener(OnExportSessionZipButton);
+        //exportZipButton.onClick.AddListener(OnExportSessionZipButton);
         fotoButton.onClick.AddListener(CapturePhoto);
-        stitchButton.onClick.AddListener(OnStitchPhotosManually);
+        //stitchButton.onClick.AddListener(OnStitchPhotosManually);
 
 
         Input.gyro.enabled = true;
@@ -70,14 +69,14 @@ public class ARCameraCapture : MonoBehaviour
     {
         if (capturedPhotos.Count == 0 || sessionPhotos.Count == 0)
         {
-            ShowPopup("No photos to stitch.");
+            PopupLogger.Log("No photos to stitch.");
             return;
         }
 
         PhotoStitcher stitcher = FindObjectOfType<PhotoStitcher>();
         if (stitcher != null)
         {
-            ShowPopup("Stitching photos...");
+            PopupLogger.Log("Stitching photos...");
             stitcher.RunStitchExternally(capturedPhotos.ToArray(), sessionPhotos.ToArray());
         }
     }
@@ -137,13 +136,13 @@ public class ARCameraCapture : MonoBehaviour
 
         if (arCameraManager == null)
         {
-            Debug.LogError("[ARCamera] ARCameraManager not assigned.");
+            PopupLogger.Log("[ARCamera] ARCameraManager not assigned.");
             yield break;
         }
 
         if (!arCameraManager.TryAcquireLatestCpuImage(out XRCpuImage image))
         {
-            Debug.LogWarning("[ARCamera] Could not acquire AR camera image.");
+            PopupLogger.Log("[ARCamera] Could not acquire AR camera image.");
             yield break;
         }
 
@@ -181,7 +180,7 @@ public class ARCameraCapture : MonoBehaviour
         });
 
         AddPhotoToPreview(photo, path);
-        ShowPopup("Photo saved to Gallery");
+        PopupLogger.Log("Photo saved to Gallery");
     }
 
     private void AddPhotoToPreview(Texture2D photo, string imagePath)
@@ -217,8 +216,10 @@ public class ARCameraCapture : MonoBehaviour
         };
         sessionPhotos.Add(meta);
 
-        if (capturedPhotos.Count == 8)
+        if (capturedPhotos.Count == 8 && sessionPhotos.Count == 8 && !readyToFinalize)
         {
+            readyToFinalize = true;
+            
             Texture2D combined = new Texture2D(photo.width * 4, photo.height * 2);
             for (int i = 0; i < 8; i++)
             {
@@ -234,7 +235,7 @@ public class ARCameraCapture : MonoBehaviour
             File.WriteAllBytes(combinedPath, combined.EncodeToPNG());
             NativeGallery.SaveImageToGallery(combinedPath, "ARCameraDemo", combinedName);
 
-            ShowPopup("Collage saved to Gallery");
+            PopupLogger.Log("Collage saved to Gallery");
 
             StartCoroutine(FinalizeMiniSessionWithDelay(combined, combinedPath));
         }
@@ -242,14 +243,35 @@ public class ARCameraCapture : MonoBehaviour
 
     private IEnumerator FinalizeMiniSessionWithDelay(Texture2D combined, string combinedPath)
     {
-        yield return new WaitForSeconds(autoStitchDelay);
+        yield return null;
+        yield return null;
+
+        if (capturedPhotos.Count < 8 || sessionPhotos.Count < 8)
+        {
+            PopupLogger.Log($"FinalizeMiniSession called too early. captured: {capturedPhotos.Count}, session: {sessionPhotos.Count}");
+            yield break;
+        }
+        
+        if (!readyToFinalize)
+        {
+            PopupLogger.Log("FinalizeMiniSessionWithDelay called, but not ready.");
+            yield break;
+        }
 
         FinalizeMiniSession(combined, combinedPath);
     }
 
 
+
+
     private void FinalizeMiniSession(Texture2D combined, string combinedPath)
     {
+        if (!readyToFinalize || capturedPhotos.Count < 8 || sessionPhotos.Count < 8)
+        {
+            PopupLogger.Log($"FinalizeMiniSession aborted. captured: {capturedPhotos.Count}, session: {sessionPhotos.Count}");
+            return;
+        }
+
         sessionPhotos.Add(new PhotoMetadata
         {
             photoId = Guid.NewGuid().ToString(),
@@ -283,9 +305,9 @@ public class ARCameraCapture : MonoBehaviour
 #if UNITY_ANDROID && !UNITY_EDITOR
     AndroidMediaScanner.ScanFile(zipPath);
 #endif
-        ShowPopup("Mini-session exported to ZIP");
+        PopupLogger.Log("Mini-session exported to ZIP");
 
-        Debug.Log("Mini-session exported to ZIP: " + zipPath);
+        PopupLogger.Log("Mini-session exported to ZIP: " + zipPath);
 
         foreach (var obj in previewImages)
             Destroy(obj);
@@ -297,12 +319,25 @@ public class ARCameraCapture : MonoBehaviour
         PhotoStitcher stitcher = FindObjectOfType<PhotoStitcher>();
         if (stitcher != null)
         {
-            ShowPopup("Stitching photos...");
-            stitcher.RunStitchExternally(capturedPhotos.ToArray(), sessionPhotos.ToArray());
+            stitcher.SetLogger(this);
+
+            if (capturedPhotos.Count == 8 && sessionPhotos.Count == 8)
+            {
+                var photosCopy = capturedPhotos.ToArray();
+                var metaCopy = sessionPhotos.ToArray();
+
+                PopupLogger.Log("Stitching photos...");
+                stitcher.RunStitchExternally(photosCopy, metaCopy);
+            }
+            else
+            {
+                PopupLogger.Log("Skipping stitch: photos or metadata not ready");
+            }
         }
         
         capturedPhotos.Clear();
         sessionPhotos.Clear();
+        readyToFinalize = false;
         currentSessionId = Guid.NewGuid().ToString();
     }
 
@@ -333,21 +368,6 @@ public class ARCameraCapture : MonoBehaviour
         return rotated;
     }
 
-    private void ShowPopup(string message)
-    {
-        if (popup != null && popupText != null)
-        {
-            popup.SetActive(true);
-            popupText.text = message;
-            StartCoroutine(HidePopupAfterDelay(2f));
-        }
-    }
-
-    private IEnumerator HidePopupAfterDelay(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        popup.SetActive(false);
-    }
 
     public void OnExportSessionZipButton()
     {
@@ -372,7 +392,7 @@ public class ARCameraCapture : MonoBehaviour
         ZipFile.CreateFromDirectory(exportDir, zipPath);
 
         AndroidMediaScanner.ScanFile(zipPath);
-        ShowPopup("📦 Session exported to ZIP");
+        PopupLogger.Log("📦 Session exported to ZIP");
     }
     public void StartNewSession()
     {
@@ -416,7 +436,7 @@ public class ARCameraCapture : MonoBehaviour
 #if UNITY_ANDROID && !UNITY_EDITOR
         try
         {
-            ShowPopup("Opening system gallery...");
+            PopupLogger.Log("Opening system gallery...");
 
             using (AndroidJavaClass intentClass = new AndroidJavaClass("android.content.Intent"))
             using (AndroidJavaObject intent = new AndroidJavaObject("android.content.Intent"))
@@ -431,10 +451,10 @@ public class ARCameraCapture : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError("[ARCamera] Failed to open gallery: " + e.Message);
+            PopupLogger.Log("[ARCamera] Failed to open gallery: " + e.Message);
         }
 #else
-        Debug.Log("[ARCamera] Gallery open only works on Android device.");
+        PopupLogger.Log("[ARCamera] Gallery open only works on Android device.");
 #endif
     }
 

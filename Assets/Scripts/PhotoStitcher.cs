@@ -16,6 +16,7 @@ public class PhotoStitcher : MonoBehaviour
 
     private Texture2D[] photos;
     private List<PhotoMetadata> photoDataList = new List<PhotoMetadata>();
+    private ARCameraCapture aRCameraCapture;
 
     public void RunStitchExternally(Texture2D[] inputPhotos, PhotoMetadata[] inputMeta)
     {
@@ -24,13 +25,18 @@ public class PhotoStitcher : MonoBehaviour
         StitchPhotos();
     }
 
+    public void SetLogger(ARCameraCapture ref_)
+    {
+        aRCameraCapture = ref_;
+    }
+
 #if UNITY_EDITOR
     [ContextMenu("Test Stitch From Inspector")]
     public void TestStitchFromInspector()
     {
         if (jsonFile == null || photoTextures == null || photoTextures.Length == 0)
         {
-            Debug.LogError("[PhotoStitcher] Assign both jsonFile and photoTextures[] in inspector.");
+            PopupLogger.Log("[PhotoStitcher] Assign both jsonFile and photoTextures[] in inspector.");
             return;
         }
 
@@ -41,72 +47,76 @@ public class PhotoStitcher : MonoBehaviour
     }
 #endif
 
-    void StitchPhotos()
+void StitchPhotos()
+{
+    PopupLogger.Log($"[PhotoStitcher] Starting stitch, photos: {photos?.Length}, meta: {photoDataList?.Count}");
+
+    if (photos == null || photoDataList == null || photos.Length == 0 || photoDataList.Count == 0)
     {
-        if (photos == null || photoDataList == null || photos.Length == 0 || photoDataList.Count == 0)
-        {
-            Debug.LogWarning("[PhotoStitcher] Nothing to stitch");
-            return;
-        }
-
-        int singleWidth = photos[0].width;
-        int singleHeight = photos[0].height;
-
-        int cols = 4;
-        int rows = 2;
-        int canvasWidth = singleWidth * cols;
-        int canvasHeight = singleHeight * rows;
-
-        Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
-        Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
-        for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.black;
-
-        for (int i = 0; i < photos.Length; i++)
-        {
-            if (i >= photoDataList.Count) continue;
-
-            Texture2D photo = photos[i];
-            Quaternion rot = Quaternion.Euler(photoDataList[i].relativeEulerAngles);
-            Debug.Log($"[Stitcher] Photo {i} rotation: {rot.eulerAngles}");
-            Texture2D rotated = Apply3DRotation(photo, rot);
-
-
-            int col = i % cols;
-            int row = i / cols;
-
-            int baseX = col * singleWidth;
-            int baseY = (rows - 1 - row) * singleHeight;
-
-            CopyPhotoToGrid(rotated, canvas, canvasPixels, baseX, baseY);
-        }
-
-        canvas.SetPixels(canvasPixels);
-        canvas.Apply();
-
-        string filePath = Path.Combine(Application.persistentDataPath, "StitchedRotatedGrid_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
-        byte[] pngData = canvas.EncodeToPNG();
-        File.WriteAllBytes(filePath, pngData);
-        Debug.Log("Grid with rotation saved: " + filePath);
-        
-#if UNITY_ANDROID && !UNITY_EDITOR
-        AndroidMediaScanner.ScanFile(filePath);
-
-        using (AndroidJavaClass intentClass = new AndroidJavaClass("android.content.Intent"))
-        using (AndroidJavaObject intent = new AndroidJavaObject("android.content.Intent"))
-        using (AndroidJavaClass unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-        using (AndroidJavaObject currentActivity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
-        using (AndroidJavaClass uriClass = new AndroidJavaClass("android.net.Uri"))
-        using (AndroidJavaObject fileObj = new AndroidJavaObject("java.io.File", filePath))
-        using (AndroidJavaObject uri = uriClass.CallStatic<AndroidJavaObject>("fromFile", fileObj))
-        {
-            intent.Call<AndroidJavaObject>("setAction", intentClass.GetStatic<string>("ACTION_VIEW"));
-            intent.Call<AndroidJavaObject>("setDataAndType", uri, "image/*");
-            intent.Call<AndroidJavaObject>("addFlags", intentClass.GetStatic<int>("FLAG_ACTIVITY_NEW_TASK"));
-            currentActivity.Call("startActivity", intent);
-        }
-#endif
-
+        PopupLogger.Log("[PhotoStitcher] Nothing to stitch");
+        return;
     }
+
+    int photoWidth = photos[0].width;
+    int photoHeight = photos[0].height;
+
+    List<Vector2> projectedPositions = new List<Vector2>();
+    float minX = float.MaxValue, maxX = float.MinValue;
+    float minY = float.MaxValue, maxY = float.MinValue;
+
+    foreach (var meta in photoDataList)
+    {
+        Vector2 pos = new Vector2(
+            meta.relativePosition.x * positionScale,
+            meta.relativePosition.z * positionScale
+        );
+        projectedPositions.Add(pos);
+        minX = Mathf.Min(minX, pos.x);
+        maxX = Mathf.Max(maxX, pos.x);
+        minY = Mathf.Min(minY, pos.y);
+        maxY = Mathf.Max(maxY, pos.y);
+    }
+
+    int canvasWidth = Mathf.CeilToInt(maxX - minX) + photoWidth;
+    int canvasHeight = Mathf.CeilToInt(maxY - minY) + photoHeight;
+
+    Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
+    Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
+    for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.black;
+
+    for (int i = 0; i < photos.Length; i++)
+    {
+        Texture2D photo = photos[i];
+        Quaternion rot = Quaternion.Euler(photoDataList[i].relativeEulerAngles);
+        Texture2D rotated = Apply3DRotation(photo, rot);
+
+        Vector2 projected = projectedPositions[i];
+        int baseX = Mathf.RoundToInt(projected.x - minX);
+        int baseY = Mathf.RoundToInt(projected.y - minY);
+
+        CopyPhotoToGrid(rotated, canvas, canvasPixels, baseX, baseY);
+    }
+
+    canvas.SetPixels(canvasPixels);
+    canvas.Apply();
+
+    string filePath = Path.Combine(Application.persistentDataPath, "StitchedByPosition_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
+    byte[] pngData = canvas.EncodeToPNG();
+    File.WriteAllBytes(filePath, pngData);
+    PopupLogger.Log($"File written: {filePath}");
+#if UNITY_ANDROID && !UNITY_EDITOR
+    string galleryDir = Path.Combine("/storage/emulated/0/Pictures/ARCameraDemo/");
+    if (!Directory.Exists(galleryDir)) Directory.CreateDirectory(galleryDir);
+
+    string finalName = Path.GetFileName(filePath);
+    string finalPath = Path.Combine(galleryDir, finalName);
+
+    File.Copy(filePath, finalPath, true);
+    NativeGallery.SaveImageToGallery(finalPath, "ARCameraDemo", Path.GetFileName(finalPath));
+    PopupLogger.Log("📷 Stitched image saved to gallery: " + finalPath);
+#endif
+}
+
 
     Texture2D RotateTexture(Texture2D original, float angleDegrees)
     {
@@ -164,7 +174,7 @@ public class PhotoStitcher : MonoBehaviour
         quad.transform.localScale = new Vector3(2, 2, 1);
         Material quadMat = new Material(Shader.Find("Unlit/Texture"));
         if (quadMat == null)
-            Debug.LogError("Shader 'Unlit/Texture' not found!");
+            PopupLogger.Log("Shader 'Unlit/Texture' not found!");
         quadMat.mainTexture = source;
         quad.GetComponent<MeshRenderer>().material = quadMat;
 
