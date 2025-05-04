@@ -22,13 +22,19 @@ public class EdgeOverlayUI : MonoBehaviour
     /// </summary>
     public void ShowEdges(Texture2D leftEdge = null, Texture2D upEdge = null, float edgePercent = 0.1f)
     {
+        Debug.Log($"ShowEdges called: leftEdge={(leftEdge != null)}, upEdge={(upEdge != null)}");
+        Debug.Log($"[ARCamera] Calling ShowEdges: left={(leftEdge != null)}, up={(upEdge != null)}, n={edgePercent}");
+
+        if (leftEdge != null) Debug.Log("[EdgeOverlayUI] Showing PreviewLeft");
+        if (upEdge != null) Debug.Log("[EdgeOverlayUI] Showing PreviewUp");
+
         if (previewLeft != null)
         {
             if (leftEdge != null)
             {
                 previewLeft.texture = leftEdge;
                 previewLeft.color = defaultColor;
-                previewLeft.uvRect = new Rect(1f - edgePercent, 0, edgePercent, 1); // show only the right part
+                previewLeft.uvRect = new Rect(1f - edgePercent, 0, edgePercent, 1);
                 previewLeft.gameObject.SetActive(true);
             }
             else
@@ -43,7 +49,7 @@ public class EdgeOverlayUI : MonoBehaviour
             {
                 previewUp.texture = upEdge;
                 previewUp.color = defaultColor;
-                previewUp.uvRect = new Rect(0, 1f - edgePercent, 1, edgePercent); // show only the top part
+                previewUp.uvRect = new Rect(0, 0, 1, edgePercent);
                 previewUp.gameObject.SetActive(true);
             }
             else

@@ -574,52 +574,49 @@ public class ARCameraCapture : MonoBehaviour
         int n = capturedPhotos.Count;
         float edgePercent = 0.1f;
 
-        // Always show the full photo for debugging
-        if (edgeOverlayUI.previewLeft != null)
-            edgeOverlayUI.previewLeft.uvRect = new Rect(0, 0, 1, 1);
-        if (edgeOverlayUI.previewUp != null)
-            edgeOverlayUI.previewUp.uvRect = new Rect(0, 0, 1, 1);
-
-        Texture2D left = null;
-        Texture2D up = null;
-
-        if (n >= 1 && n <= 3)
+        if (n == 1)
         {
-            left = capturedPhotos[n - 1];
+            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[0], upEdge: null, edgePercent: edgePercent);
+        }
+        else if (n == 2)
+        {
+            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[1], upEdge: null, edgePercent: edgePercent);
+        }
+        else if (n == 3)
+        {
+            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[2], upEdge: null, edgePercent: edgePercent);
         }
         else if (n == 4)
         {
-            left = capturedPhotos[3];
-            up = capturedPhotos[0];
+            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[3], upEdge: null, edgePercent: edgePercent);
         }
         else if (n == 5)
         {
-            left = capturedPhotos[4];
-            up = capturedPhotos[1];
+            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[4], upEdge: capturedPhotos[0], edgePercent: edgePercent);
         }
         else if (n == 6)
         {
-            left = capturedPhotos[5];
-            up = capturedPhotos[2];
+            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[5], upEdge: capturedPhotos[1], edgePercent: edgePercent);
         }
         else if (n == 7)
         {
-            left = capturedPhotos[6];
-            up = capturedPhotos[3];
+            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[6], upEdge: capturedPhotos[2], edgePercent: edgePercent);
         }
         else if (n == 8)
         {
-            left = capturedPhotos[7];
-            up = null;
-        }
-
-        if (left != null || up != null)
-            edgeOverlayUI.ShowEdges(leftEdge: left, upEdge: up, edgePercent: edgePercent);
-        else
+            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[7], upEdge: capturedPhotos[3], edgePercent: edgePercent);
+            // Hide overlays after the last photo
             edgeOverlayUI.HideAll();
+        }
+        else
+        {
+            edgeOverlayUI.HideAll();
+        }
         // --- End overlay logic ---
 
-        Debug.Log($"ShowEdges: leftEdge={(left != null ? left.width + "x" + left.height : "null")}, upEdge={(up != null ? up.width + "x" + up.height : "null")}");
+        string leftEdgeInfo = n > 0 ? $"{capturedPhotos[n - 1].width}x{capturedPhotos[n - 1].height}" : "null";
+        string upEdgeInfo = (n > 4 && n <= 8) ? $"{capturedPhotos[(n - 1) % 4].width}x{capturedPhotos[(n - 1) % 4].height}" : "null";
+        Debug.Log($"ShowEdges: leftEdge={leftEdgeInfo}, upEdge={upEdgeInfo}");
 
         Debug.Log("PreviewUp set active");
     }
