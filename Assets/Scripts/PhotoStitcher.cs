@@ -26,9 +26,9 @@ public class PhotoStitcher : MonoBehaviour
         StitchPhotos();
     }
 
-    public void SetLogger(ARCameraCapture ref_)
+    public void SetLogger(ARCameraCapture refARCameraCapture)
     {
-        aRCameraCapture = ref_;
+        aRCameraCapture = refARCameraCapture;
     }
 
 #if UNITY_EDITOR
@@ -375,5 +375,84 @@ public class PhotoStitcher : MonoBehaviour
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Aligns the edges of two photos with a specified step (for example, every 50th pixel).
+    /// edgeA и edgeB: "left", "right", "top", "bottom"
+    /// </summary>
+    public static float CompareEdgesWithStep(Texture2D photoA, Texture2D photoB, string edgeA, string edgeB, int step = 50)
+    {
+        int width = photoA.width;
+        int height = photoA.height;
+        float totalDiff = 0f;
+        int count = 0;
+
+        if ((edgeA == "right" || edgeA == "left") && (edgeB == "right" || edgeB == "left"))
+        {
+            // Vertical edges
+            for (int y = 0; y < height; y += step)
+            {
+                Color colorA = (edgeA == "right") ? photoA.GetPixel(width - 1, y) : photoA.GetPixel(0, y);
+                Color colorB = (edgeB == "right") ? photoB.GetPixel(width - 1, y) : photoB.GetPixel(0, y);
+                totalDiff += Mathf.Abs(colorA.r - colorB.r) + Mathf.Abs(colorA.g - colorB.g) + Mathf.Abs(colorA.b - colorB.b);
+                count++;
+            }
+        }
+        else if ((edgeA == "top" || edgeA == "bottom") && (edgeB == "top" || edgeB == "bottom"))
+        {
+            // Horizontal edges
+            for (int x = 0; x < width; x += step)
+            {
+                Color colorA = (edgeA == "top") ? photoA.GetPixel(x, height - 1) : photoA.GetPixel(x, 0);
+                Color colorB = (edgeB == "top") ? photoB.GetPixel(x, height - 1) : photoB.GetPixel(x, 0);
+                totalDiff += Mathf.Abs(colorA.r - colorB.r) + Mathf.Abs(colorA.g - colorB.g) + Mathf.Abs(colorA.b - colorB.b);
+                count++;
+            }
+        }
+        else
+        {
+            Debug.LogWarning($"Edge combination {edgeA}-{edgeB} is not supported for comparison.");
+            return -1f;
+        }
+        return (count > 0) ? totalDiff / count : -1f;
+    }
+
+    public static Texture2D GetEdge(Texture2D source, string edge, int thickness = 5)
+    {
+        int width = source.width;
+        int height = source.height;
+        Texture2D edgeTex = null;
+
+        if (edge == "left")
+        {
+            edgeTex = new Texture2D(thickness, height, source.format, false);
+            for (int x = 0; x < thickness; x++)
+                for (int y = 0; y < height; y++)
+                    edgeTex.SetPixel(x, y, source.GetPixel(x, y));
+        }
+        else if (edge == "right")
+        {
+            edgeTex = new Texture2D(thickness, height, source.format, false);
+            for (int x = 0; x < thickness; x++)
+                for (int y = 0; y < height; y++)
+                    edgeTex.SetPixel(x, y, source.GetPixel(width - thickness + x, y));
+        }
+        else if (edge == "top")
+        {
+            edgeTex = new Texture2D(width, thickness, source.format, false);
+            for (int x = 0; x < width; x++)
+                for (int y = 0; y < thickness; y++)
+                    edgeTex.SetPixel(x, y, source.GetPixel(x, height - thickness + y));
+        }
+        else if (edge == "bottom")
+        {
+            edgeTex = new Texture2D(width, thickness, source.format, false);
+            for (int x = 0; x < width; x++)
+                for (int y = 0; y < thickness; y++)
+                    edgeTex.SetPixel(x, y, source.GetPixel(x, y));
+        }
+        edgeTex.Apply();
+        return edgeTex;
     }
 }

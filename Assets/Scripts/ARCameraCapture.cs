@@ -25,7 +25,7 @@ public class ARCameraCapture : MonoBehaviour
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private CameraStatusUI cameraStatusUI;
     [SerializeField] private float autoStitchDelay = 0.5f;
-
+    public EdgeOverlayUI edgeOverlayUI;
 
     private List<Texture2D> capturedPhotos = new List<Texture2D>();
     private List<GameObject> previewImages = new List<GameObject>();
@@ -181,21 +181,48 @@ public class ARCameraCapture : MonoBehaviour
         string path = Path.Combine(Application.persistentDataPath, filename);
         File.WriteAllBytes(path, photo.EncodeToPNG());
 
-        NativeGallery.SaveImageToGallery(path, "ARCameraDemo", filename, (success, outputPath) =>
-        {
-            if (success) lastSavedImagePath = outputPath;
-        });
-
         AddPhotoToPreview(photo, path);
         PopupLogger.Log($"Saved photo #{capturedPhotos.Count}");
-    }
 
-    private void AddPhotoToPreview(Texture2D photo, string imagePath)
-    {
-        GameObject newPreview = Instantiate(previewPrefab, previewContainer);
-        newPreview.GetComponent<RawImage>().texture = photo;
-        previewImages.Add(newPreview);
-        capturedPhotos.Add(photo);
+        int n = capturedPhotos.Count;
+        float edgePercent = 0.1f;
+
+        Texture2D left = null;
+        Texture2D up = null;
+
+        if (n == 1 && capturedPhotos.Count > 0)
+            left = capturedPhotos[0];
+        else if (n == 2 && capturedPhotos.Count > 1)
+            left = capturedPhotos[1];
+        else if (n == 3 && capturedPhotos.Count > 2)
+            left = capturedPhotos[2];
+        else if (n == 4 && capturedPhotos.Count > 3)
+            left = capturedPhotos[3];
+        else if (n == 5 && capturedPhotos.Count > 4 && capturedPhotos.Count > 0)
+        {
+            left = capturedPhotos[4];
+            up = capturedPhotos[0];
+        }
+        else if (n == 6 && capturedPhotos.Count > 5 && capturedPhotos.Count > 1)
+        {
+            left = capturedPhotos[5];
+            up = capturedPhotos[1];
+        }
+        else if (n == 7 && capturedPhotos.Count > 6 && capturedPhotos.Count > 2)
+        {
+            left = capturedPhotos[6];
+            up = capturedPhotos[2];
+        }
+        else if (n == 8 && capturedPhotos.Count > 7 && capturedPhotos.Count > 3)
+        {
+            left = capturedPhotos[7];
+            up = capturedPhotos[3];
+        }
+
+        if (left != null || up != null)
+            edgeOverlayUI.ShowEdges(leftEdge: left, upEdge: up, edgePercent: edgePercent);
+        else
+            edgeOverlayUI.HideAll();
 
         Quaternion currentGyro = Input.gyro.attitude;
         Quaternion relativeGyro = Quaternion.Inverse(baseGyroRotation) * currentGyro;
@@ -208,7 +235,7 @@ public class ARCameraCapture : MonoBehaviour
             photoId = Guid.NewGuid().ToString(),
             sessionId = currentSessionId,
             timestamp = DateTime.Now.ToString("o"),
-            path = imagePath,
+            path = path,
             width = photo.width,
             height = photo.height,
             quality = 95,
@@ -529,5 +556,69 @@ public class ARCameraCapture : MonoBehaviour
         if (!UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.FineLocation))
             UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.FineLocation);
 #endif
+    }
+
+    private void AddPhotoToPreview(Texture2D photo, string imagePath)
+    {
+        GameObject newPreview = Instantiate(previewPrefab, previewContainer);
+        newPreview.GetComponent<RawImage>().texture = photo;
+        previewImages.Add(newPreview);
+        capturedPhotos.Add(photo);
+
+        // Save each photo to gallery with a unique filename
+        string debugGalleryName = $"Single_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png";
+        NativeGallery.SaveImageToGallery(imagePath, "ARCameraDemo", debugGalleryName);
+
+        // --- Overlay update logic ---
+        int n = capturedPhotos.Count;
+        float edgePercent = 0.1f;
+
+        // Always show the full photo for debugging
+        if (edgeOverlayUI.previewLeft != null)
+            edgeOverlayUI.previewLeft.uvRect = new Rect(0, 0, 1, 1);
+        if (edgeOverlayUI.previewUp != null)
+            edgeOverlayUI.previewUp.uvRect = new Rect(0, 0, 1, 1);
+
+        Texture2D left = null;
+        Texture2D up = null;
+
+        if (n == 1 && capturedPhotos.Count > 0)
+            left = capturedPhotos[0];
+        else if (n == 2 && capturedPhotos.Count > 1)
+            left = capturedPhotos[1];
+        else if (n == 3 && capturedPhotos.Count > 2)
+            left = capturedPhotos[2];
+        else if (n == 4 && capturedPhotos.Count > 3)
+            left = capturedPhotos[3];
+        else if (n == 5 && capturedPhotos.Count > 4 && capturedPhotos.Count > 0)
+        {
+            left = capturedPhotos[4];
+            up = capturedPhotos[0];
+        }
+        else if (n == 6 && capturedPhotos.Count > 5 && capturedPhotos.Count > 1)
+        {
+            left = capturedPhotos[5];
+            up = capturedPhotos[1];
+        }
+        else if (n == 7 && capturedPhotos.Count > 6 && capturedPhotos.Count > 2)
+        {
+            left = capturedPhotos[6];
+            up = capturedPhotos[2];
+        }
+        else if (n == 8 && capturedPhotos.Count > 7 && capturedPhotos.Count > 3)
+        {
+            left = capturedPhotos[7];
+            up = capturedPhotos[3];
+        }
+
+        if (left != null || up != null)
+            edgeOverlayUI.ShowEdges(leftEdge: left, upEdge: up, edgePercent: edgePercent);
+        else
+            edgeOverlayUI.HideAll();
+        // --- End overlay logic ---
+
+        Debug.Log($"ShowEdges: leftEdge={(left != null ? left.width + "x" + left.height : "null")}, upEdge={(up != null ? up.width + "x" + up.height : "null")}");
+
+        Debug.Log("PreviewUp set active");
     }
 }

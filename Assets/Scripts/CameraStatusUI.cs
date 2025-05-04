@@ -11,7 +11,7 @@ public class CameraStatusUI : MonoBehaviour
     public TextMeshProUGUI rotationText;
 
     public Color waitingColor = Color.red;
-    public Color stationaryColor = new Color(1f, 0.65f, 0f); // orange
+    public Color stationaryColor = new Color(1f, 0.65f, 0f);
     public Color readyColor = Color.green;
 
     /// <summary>
@@ -32,8 +32,8 @@ public class CameraStatusUI : MonoBehaviour
     {
         SetColors(stationaryColor);
         statusText.text = "Camera is stationary";
-        positionText.text = $"Offset: {FormatVector(relativePos)}";
-        rotationText.text = $"Rotation: {FormatVector(relativeEuler)}";
+        positionText.text = $"Relative Pos: {FormatVector(relativePos)}";
+        rotationText.text = $"Relative Euler: {FormatVector(relativeEuler)}";
     }
 
     /// <summary>
@@ -43,8 +43,8 @@ public class CameraStatusUI : MonoBehaviour
     {
         SetColors(readyColor);
         statusText.text = "Ready to capture";
-        positionText.text = $"Offset: {FormatVector(relativePos)}";
-        rotationText.text = $"Rotation: {FormatVector(relativeEuler)}";
+        positionText.text = $"Relative Pos: {FormatVector(relativePos)}";
+        rotationText.text = $"Relative Euler: {FormatVector(relativeEuler)}";
     }
 
     private void SetColors(Color color)
