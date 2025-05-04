@@ -190,33 +190,34 @@ public class ARCameraCapture : MonoBehaviour
         Texture2D left = null;
         Texture2D up = null;
 
-        if (n == 1 && capturedPhotos.Count > 0)
-            left = capturedPhotos[0];
-        else if (n == 2 && capturedPhotos.Count > 1)
-            left = capturedPhotos[1];
-        else if (n == 3 && capturedPhotos.Count > 2)
-            left = capturedPhotos[2];
-        else if (n == 4 && capturedPhotos.Count > 3)
-            left = capturedPhotos[3];
-        else if (n == 5 && capturedPhotos.Count > 4 && capturedPhotos.Count > 0)
+        if (n >= 1 && n <= 3)
         {
-            left = capturedPhotos[4];
+            left = capturedPhotos[n - 1];
+        }
+        else if (n == 4)
+        {
+            left = capturedPhotos[3];
             up = capturedPhotos[0];
         }
-        else if (n == 6 && capturedPhotos.Count > 5 && capturedPhotos.Count > 1)
+        else if (n == 5)
         {
-            left = capturedPhotos[5];
+            left = capturedPhotos[4];
             up = capturedPhotos[1];
         }
-        else if (n == 7 && capturedPhotos.Count > 6 && capturedPhotos.Count > 2)
+        else if (n == 6)
         {
-            left = capturedPhotos[6];
+            left = capturedPhotos[5];
             up = capturedPhotos[2];
         }
-        else if (n == 8 && capturedPhotos.Count > 7 && capturedPhotos.Count > 3)
+        else if (n == 7)
+        {
+            left = capturedPhotos[6];
+            up = capturedPhotos[3];
+        }
+        else if (n == 8)
         {
             left = capturedPhotos[7];
-            up = capturedPhotos[3];
+            up = null;
         }
 
         if (left != null || up != null)
@@ -582,33 +583,34 @@ public class ARCameraCapture : MonoBehaviour
         Texture2D left = null;
         Texture2D up = null;
 
-        if (n == 1 && capturedPhotos.Count > 0)
-            left = capturedPhotos[0];
-        else if (n == 2 && capturedPhotos.Count > 1)
-            left = capturedPhotos[1];
-        else if (n == 3 && capturedPhotos.Count > 2)
-            left = capturedPhotos[2];
-        else if (n == 4 && capturedPhotos.Count > 3)
-            left = capturedPhotos[3];
-        else if (n == 5 && capturedPhotos.Count > 4 && capturedPhotos.Count > 0)
+        if (n >= 1 && n <= 3)
         {
-            left = capturedPhotos[4];
+            left = capturedPhotos[n - 1];
+        }
+        else if (n == 4)
+        {
+            left = capturedPhotos[3];
             up = capturedPhotos[0];
         }
-        else if (n == 6 && capturedPhotos.Count > 5 && capturedPhotos.Count > 1)
+        else if (n == 5)
         {
-            left = capturedPhotos[5];
+            left = capturedPhotos[4];
             up = capturedPhotos[1];
         }
-        else if (n == 7 && capturedPhotos.Count > 6 && capturedPhotos.Count > 2)
+        else if (n == 6)
         {
-            left = capturedPhotos[6];
+            left = capturedPhotos[5];
             up = capturedPhotos[2];
         }
-        else if (n == 8 && capturedPhotos.Count > 7 && capturedPhotos.Count > 3)
+        else if (n == 7)
+        {
+            left = capturedPhotos[6];
+            up = capturedPhotos[3];
+        }
+        else if (n == 8)
         {
             left = capturedPhotos[7];
-            up = capturedPhotos[3];
+            up = null;
         }
 
         if (left != null || up != null)
