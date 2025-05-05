@@ -185,45 +185,75 @@ public class ARCameraCapture : MonoBehaviour
         PopupLogger.Log($"Saved photo #{capturedPhotos.Count}");
 
         int n = capturedPhotos.Count;
-        float edgePercent = 0.1f;
+        float edgePercent = 0.2f;
 
-        Texture2D left = null;
-        Texture2D up = null;
-
-        if (n >= 1 && n <= 3)
+        Texture2D leftEdge = null;
+        Texture2D upEdge = null;
+        int thickness;
+        if (n == 1)
         {
-            left = capturedPhotos[n - 1];
+            thickness = (int)(capturedPhotos[0].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[0], "right", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: null, edgePercent: 1f);
+        }
+        else if (n == 2)
+        {
+            thickness = (int)(capturedPhotos[1].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[1], "right", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: null, edgePercent: 1f);
+        }
+        else if (n == 3)
+        {
+            thickness = (int)(capturedPhotos[2].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[2], "right", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: null, edgePercent: 1f);
         }
         else if (n == 4)
         {
-            left = capturedPhotos[3];
-            up = capturedPhotos[0];
+            thickness = (int)(capturedPhotos[3].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "right", thickness);
+            thickness = (int)(capturedPhotos[0].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[0], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 5)
         {
-            left = capturedPhotos[4];
-            up = capturedPhotos[1];
+            thickness = (int)(capturedPhotos[4].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[4], "right", thickness);
+            thickness = (int)(capturedPhotos[1].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[1], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 6)
         {
-            left = capturedPhotos[5];
-            up = capturedPhotos[2];
+            thickness = (int)(capturedPhotos[5].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[5], "right", thickness);
+            thickness = (int)(capturedPhotos[2].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[2], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 7)
         {
-            left = capturedPhotos[6];
-            up = capturedPhotos[3];
+            thickness = (int)(capturedPhotos[6].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[6], "right", thickness);
+            thickness = (int)(capturedPhotos[3].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 8)
         {
-            left = capturedPhotos[7];
-            up = null;
-        }
-
-        if (left != null || up != null)
-            edgeOverlayUI.ShowEdges(leftEdge: left, upEdge: up, edgePercent: edgePercent);
-        else
+            thickness = (int)(capturedPhotos[7].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[7], "right", thickness);
+            thickness = (int)(capturedPhotos[3].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
+            // Hide overlays after the last photo
             edgeOverlayUI.HideAll();
+        }
+        else
+        {
+            edgeOverlayUI.HideAll();
+        }
 
         Quaternion currentGyro = Input.gyro.attitude;
         Quaternion relativeGyro = Quaternion.Inverse(baseGyroRotation) * currentGyro;
@@ -572,39 +602,68 @@ public class ARCameraCapture : MonoBehaviour
 
         // --- Overlay update logic ---
         int n = capturedPhotos.Count;
-        float edgePercent = 0.1f;
+        float edgePercent = 0.2f;
 
+        Texture2D leftEdge = null;
+        Texture2D upEdge = null;
+        int thickness;
         if (n == 1)
         {
-            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[0], upEdge: null, edgePercent: edgePercent);
+            thickness = (int)(capturedPhotos[0].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[0], "right", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: null, edgePercent: 1f);
         }
         else if (n == 2)
         {
-            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[1], upEdge: null, edgePercent: edgePercent);
+            thickness = (int)(capturedPhotos[1].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[1], "right", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: null, edgePercent: 1f);
         }
         else if (n == 3)
         {
-            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[2], upEdge: null, edgePercent: edgePercent);
+            thickness = (int)(capturedPhotos[2].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[2], "right", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: null, edgePercent: 1f);
         }
         else if (n == 4)
         {
-            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[3], upEdge: null, edgePercent: edgePercent);
+            thickness = (int)(capturedPhotos[3].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "right", thickness);
+            thickness = (int)(capturedPhotos[0].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[0], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 5)
         {
-            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[4], upEdge: capturedPhotos[0], edgePercent: edgePercent);
+            thickness = (int)(capturedPhotos[4].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[4], "right", thickness);
+            thickness = (int)(capturedPhotos[1].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[1], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 6)
         {
-            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[5], upEdge: capturedPhotos[1], edgePercent: edgePercent);
+            thickness = (int)(capturedPhotos[5].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[5], "right", thickness);
+            thickness = (int)(capturedPhotos[2].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[2], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 7)
         {
-            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[6], upEdge: capturedPhotos[2], edgePercent: edgePercent);
+            thickness = (int)(capturedPhotos[6].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[6], "right", thickness);
+            thickness = (int)(capturedPhotos[3].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 8)
         {
-            edgeOverlayUI.ShowEdges(leftEdge: capturedPhotos[7], upEdge: capturedPhotos[3], edgePercent: edgePercent);
+            thickness = (int)(capturedPhotos[7].width * edgePercent);
+            leftEdge = PhotoStitcher.GetEdge(capturedPhotos[7], "right", thickness);
+            thickness = (int)(capturedPhotos[3].height * edgePercent);
+            upEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "bottom", thickness);
+            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
             // Hide overlays after the last photo
             edgeOverlayUI.HideAll();
         }

@@ -34,7 +34,7 @@ public class EdgeOverlayUI : MonoBehaviour
             {
                 previewLeft.texture = leftEdge;
                 previewLeft.color = defaultColor;
-                previewLeft.uvRect = new Rect(1f - edgePercent, 0, edgePercent, 1);
+                previewLeft.uvRect = new Rect(0, 0, edgePercent, 1);
                 previewLeft.gameObject.SetActive(true);
             }
             else
@@ -49,7 +49,7 @@ public class EdgeOverlayUI : MonoBehaviour
             {
                 previewUp.texture = upEdge;
                 previewUp.color = defaultColor;
-                previewUp.uvRect = new Rect(0, 0, 1, edgePercent);
+                previewUp.uvRect = new Rect(0, 1f - edgePercent, 1, edgePercent);
                 previewUp.gameObject.SetActive(true);
             }
             else
