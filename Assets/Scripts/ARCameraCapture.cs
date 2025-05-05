@@ -210,11 +210,12 @@ public class ARCameraCapture : MonoBehaviour
         }
         else if (n == 4)
         {
+            edgeOverlayUI.HideAll();
             thickness = (int)(capturedPhotos[3].width * edgePercent);
             leftEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "right", thickness);
             thickness = (int)(capturedPhotos[0].height * edgePercent);
             upEdge = PhotoStitcher.GetEdge(capturedPhotos[0], "bottom", thickness);
-            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
+            edgeOverlayUI.ShowEdges(leftEdge: null, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 5)
         {
@@ -627,11 +628,12 @@ public class ARCameraCapture : MonoBehaviour
         }
         else if (n == 4)
         {
+            edgeOverlayUI.HideAll();
             thickness = (int)(capturedPhotos[3].width * edgePercent);
             leftEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "right", thickness);
             thickness = (int)(capturedPhotos[0].height * edgePercent);
             upEdge = PhotoStitcher.GetEdge(capturedPhotos[0], "bottom", thickness);
-            edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
+            edgeOverlayUI.ShowEdges(leftEdge: null, upEdge: upEdge, edgePercent: 1f);
         }
         else if (n == 5)
         {

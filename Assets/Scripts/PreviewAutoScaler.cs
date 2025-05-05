@@ -23,28 +23,18 @@ public class PreviewAutoScaler : MonoBehaviour
         if (cameraPreview == null || previewLeft == null || previewUp == null)
             return;
 
-        RawImage leftRaw = previewLeft.GetComponent<RawImage>();
-        RawImage upRaw = previewUp.GetComponent<RawImage>();
+        float width = cameraPreview.rect.width;
+        float height = cameraPreview.rect.height;
+        float edgePercent = 0.2f;
 
-        if (leftRaw.texture != null)
-        {
-            leftRaw.uvRect = new Rect(0, 0, 1, 1);
-            float edgeWidth = leftRaw.texture.width;
-            float edgeHeight = leftRaw.texture.height;
-            previewLeft.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, edgeWidth);
-            previewLeft.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, edgeHeight);
-            // Place the cameraPreview to the LEFT edge
-            previewLeft.position = cameraPreview.position;
-        }
-        if (upRaw.texture != null)
-        {
-            upRaw.uvRect = new Rect(0, 0, 1, 1);
-            float edgeWidth = upRaw.texture.width;
-            float edgeHeight = upRaw.texture.height;
-            previewUp.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, edgeWidth);
-            previewUp.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, edgeHeight);
-            // Place the cameraPreview to the TOP edge
-            previewUp.position = cameraPreview.position;
-        }
+        // PreviewLeft: 20% ширины, вся высота
+        previewLeft.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width * edgePercent);
+        previewLeft.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, height);
+        previewLeft.anchoredPosition = Vector2.zero;
+
+        // PreviewUp: вся ширина, 20% высоты
+        previewUp.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width);
+        previewUp.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, height * edgePercent);
+        previewUp.anchoredPosition = Vector2.zero;
     }
 }
