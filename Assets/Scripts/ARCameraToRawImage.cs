@@ -49,28 +49,10 @@ public class ARCameraToRawImage : MonoBehaviour
         cameraTexture.LoadRawTextureData(buffer);
         cameraTexture.Apply();
 
-        // Dispose
         buffer.Dispose();
         image.Dispose();
 
         cameraRawImage.texture = RotateTexture90CCW(cameraTexture);
-    }
-
-    // Helper method to rotate a Texture2D 90 degrees clockwise
-    private Texture2D RotateTexture90(Texture2D original)
-    {
-        int width = original.width;
-        int height = original.height;
-        Texture2D rotated = new Texture2D(height, width, original.format, false);
-        for (int x = 0; x < width; x++)
-        {
-            for (int y = 0; y < height; y++)
-            {
-                rotated.SetPixel(y, width - x - 1, original.GetPixel(x, y));
-            }
-        }
-        rotated.Apply();
-        return rotated;
     }
 
     // Helper method to rotate a Texture2D 90 degrees counterclockwise

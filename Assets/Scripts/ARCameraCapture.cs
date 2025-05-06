@@ -19,9 +19,6 @@ public class ARCameraCapture : MonoBehaviour
     [SerializeField] private Transform previewContainer;
     [SerializeField] private Button fotoButton;
     [SerializeField] private Button galleryButton;
-    [SerializeField] private Button exportZipButton;
-    [SerializeField] private Button stitchButton;
-    [SerializeField] private Button stitchFromJsonButton;
     [SerializeField] private Transform cameraTransform;
     [SerializeField] private CameraStatusUI cameraStatusUI;
     [SerializeField] private float autoStitchDelay = 0.5f;
@@ -60,32 +57,11 @@ public class ARCameraCapture : MonoBehaviour
         currentSessionId = Guid.NewGuid().ToString();
 
         galleryButton.onClick.AddListener(OpenSystemGallery);
-        //exportZipButton.onClick.AddListener(OnExportSessionZipButton);
         fotoButton.onClick.AddListener(CapturePhoto);
-        stitchButton.onClick.AddListener(OnStitchPhotosManually);
-        stitchFromJsonButton.onClick.AddListener(OnStitchFromLastJson);
-
 
         Input.gyro.enabled = true;
         StartCoroutine(UpdateLocation());
     }
-
-    public void OnStitchPhotosManually()
-    {
-        if (capturedPhotos.Count == 0 || sessionPhotos.Count == 0)
-        {
-            PopupLogger.Log("No photos to stitch.");
-            return;
-        }
-
-        PhotoStitcher stitcher = FindObjectOfType<PhotoStitcher>();
-        if (stitcher != null)
-        {
-            PopupLogger.Log("Stitching photos...");
-            stitcher.RunStitchExternally(capturedPhotos.ToArray(), sessionPhotos.ToArray());
-        }
-    }
-
 
     void Update()
     {
@@ -248,7 +224,6 @@ public class ARCameraCapture : MonoBehaviour
             thickness = (int)(capturedPhotos[3].height * edgePercent);
             upEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "bottom", thickness);
             edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
-            // Hide overlays after the last photo
             edgeOverlayUI.HideAll();
         }
         else
@@ -405,60 +380,6 @@ public class ARCameraCapture : MonoBehaviour
     }
 
 
-    public void OnStitchFromLastJson()
-    {
-        capturedPhotos.Clear();
-        sessionPhotos.Clear();
-
-        string[] jsonFiles = Directory.GetFiles(Application.persistentDataPath, "Session_*.json");
-        if (jsonFiles.Length == 0)
-        {
-            PopupLogger.Log("No previous session JSON found.");
-            return;
-        }
-
-        string latestJson = jsonFiles[jsonFiles.Length - 1];
-        string jsonText = File.ReadAllText(latestJson);
-        PhotoStitcher.PhotoMetadataWrapper wrapper = JsonUtility.FromJson<PhotoStitcher.PhotoMetadataWrapper>(jsonText);
-
-        if (wrapper.Items == null || wrapper.Items.Length == 0)
-        {
-            PopupLogger.Log("Failed to parse JSON.");
-            return;
-        }
-
-        int loaded = 0;
-
-        foreach (var meta in wrapper.Items)
-        {
-            if (!File.Exists(meta.path)) continue;
-
-            byte[] data = File.ReadAllBytes(meta.path);
-            Texture2D tex = new Texture2D(2, 2);
-            if (!tex.LoadImage(data)) continue;
-
-            capturedPhotos.Add(tex);
-            sessionPhotos.Add(meta);
-            loaded++;
-        }
-
-        if (loaded == 0)
-        {
-            PopupLogger.Log("No valid photos found in session.");
-        }
-        else
-        {
-            PopupLogger.Log($"Loaded {loaded} photo(s) from session. Ready to stitch.");
-        }
-    }
-
-    private void SaveSessionMetadata()
-    {
-        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
-        string sessionFile = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.json");
-        File.WriteAllText(sessionFile, sessionJson);
-    }
-
     private Texture2D RotateTexture90CW(Texture2D original)
     {
         int width = original.width;
@@ -477,43 +398,6 @@ public class ARCameraCapture : MonoBehaviour
         return rotated;
     }
 
-
-    public void OnExportSessionZipButton()
-    {
-        string exportDir = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}_Export");
-        Directory.CreateDirectory(exportDir);
-
-        int copiedCount = 0;
-
-        foreach (var meta in sessionPhotos)
-        {
-            if (File.Exists(meta.path))
-            {
-                string fileName = Path.GetFileName(meta.path);
-                File.Copy(meta.path, Path.Combine(exportDir, fileName), true);
-                copiedCount++;
-            }
-            else
-            {
-                PopupLogger.Log($"Skipped missing photo: {meta.path}");
-            }
-        }
-
-        string sessionJson = JsonHelper.ToJson(sessionPhotos.ToArray(), true);
-        string jsonFile = Path.Combine(exportDir, $"Session_{currentSessionId}.json");
-        File.WriteAllText(jsonFile, sessionJson);
-
-        string zipPath = Path.Combine(Application.persistentDataPath, $"Session_{currentSessionId}.zip");
-        if (File.Exists(zipPath)) File.Delete(zipPath);
-        ZipFile.CreateFromDirectory(exportDir, zipPath);
-        Directory.Delete(exportDir, true);
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-    AndroidMediaScanner.ScanFile(zipPath);
-#endif
-
-        PopupLogger.Log($"Exported ZIP with {copiedCount} photos to: {zipPath}");
-    }
 
     public void StartNewSession()
     {
@@ -597,11 +481,9 @@ public class ARCameraCapture : MonoBehaviour
         previewImages.Add(newPreview);
         capturedPhotos.Add(photo);
 
-        // Save each photo to gallery with a unique filename
         string debugGalleryName = $"Single_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png";
         NativeGallery.SaveImageToGallery(imagePath, "ARCameraDemo", debugGalleryName);
 
-        // --- Overlay update logic ---
         int n = capturedPhotos.Count;
         float edgePercent = 0.2f;
 
@@ -666,17 +548,17 @@ public class ARCameraCapture : MonoBehaviour
             thickness = (int)(capturedPhotos[3].height * edgePercent);
             upEdge = PhotoStitcher.GetEdge(capturedPhotos[3], "bottom", thickness);
             edgeOverlayUI.ShowEdges(leftEdge: leftEdge, upEdge: upEdge, edgePercent: 1f);
-            // Hide overlays after the last photo
             edgeOverlayUI.HideAll();
         }
         else
         {
             edgeOverlayUI.HideAll();
         }
-        // --- End overlay logic ---
 
         string leftEdgeInfo = n > 0 ? $"{capturedPhotos[n - 1].width}x{capturedPhotos[n - 1].height}" : "null";
-        string upEdgeInfo = (n > 4 && n <= 8) ? $"{capturedPhotos[(n - 1) % 4].width}x{capturedPhotos[(n - 1) % 4].height}" : "null";
+        string upEdgeInfo = (n > 4 && n <= 8)
+            ? $"{capturedPhotos[(n - 1) % 4].width}x{capturedPhotos[(n - 1) % 4].height}"
+            : "null";
         Debug.Log($"ShowEdges: leftEdge={leftEdgeInfo}, upEdge={upEdgeInfo}");
 
         Debug.Log("PreviewUp set active");
