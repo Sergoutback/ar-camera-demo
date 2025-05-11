@@ -8,7 +8,7 @@ using System.IO.Compression;
 
 public class PhotoStitcher : MonoBehaviour
 {
-    public float positionScale = 2000f;
+    public float positionScale = 800f;
     public float directionBias = 10f;
 
     public TextAsset jsonFile;
@@ -64,11 +64,23 @@ public class PhotoStitcher : MonoBehaviour
 
             int photoWidth = photos[0].width;
             int photoHeight = photos[0].height;
-            int cols = 4;
-            int rows = 2;
 
-            int canvasWidth = photoWidth * cols;
-            int canvasHeight = photoHeight * rows;
+            Vector3 min = photoDataList[0].relativePosition;
+            Vector3 max = photoDataList[0].relativePosition;
+            foreach (var meta in photoDataList)
+            {
+                min.x = Mathf.Min(min.x, meta.relativePosition.x);
+                min.y = Mathf.Min(min.y, meta.relativePosition.y);
+                max.x = Mathf.Max(max.x, meta.relativePosition.x);
+                max.y = Mathf.Max(max.y, meta.relativePosition.y);
+            }
+
+            Vector2 offset = -new Vector2(min.x, min.y);
+
+            float canvasWidthF = (max.x - min.x) * positionScale + photoWidth;
+            float canvasHeightF = (max.y - min.y) * positionScale + photoHeight;
+            int canvasWidth = Mathf.CeilToInt(canvasWidthF);
+            int canvasHeight = Mathf.CeilToInt(canvasHeightF);
 
             Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
             Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
@@ -76,16 +88,18 @@ public class PhotoStitcher : MonoBehaviour
 
             for (int i = 0; i < photos.Length; i++)
             {
-                if (i >= photoDataList.Count) continue;
+                var meta = photoDataList[i];
+                Vector2 canvasPos = new Vector2(
+                    (meta.relativePosition.x + offset.x) * positionScale,
+                    (meta.relativePosition.y + offset.y) * positionScale
+                );
+
+                int baseX = Mathf.RoundToInt(canvasPos.x - photoWidth / 2f);
+                int baseY = Mathf.RoundToInt(canvasPos.y - photoHeight / 2f);
 
                 Texture2D photo = photos[i];
-                Quaternion rot = Quaternion.Euler(photoDataList[i].relativeEulerAngles);
+                Quaternion rot = Quaternion.Euler(meta.relativeEulerAngles);
                 Texture2D rotated = Apply3DRotation(photo, rot);
-
-                int col = i % cols;
-                int row = i / cols;
-                int baseX = col * photoWidth;
-                int baseY = (rows - 1 - row) * photoHeight;
 
                 CopyPhotoToGrid(rotated, canvas, canvasPixels, baseX, baseY);
             }
@@ -95,28 +109,28 @@ public class PhotoStitcher : MonoBehaviour
 
             filePath = Path.Combine(Application.persistentDataPath,
                 "StitchedGrid_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
-            byte[] pngData = canvas.EncodeToPNG();
-            File.WriteAllBytes(filePath, pngData);
+            File.WriteAllBytes(filePath, canvas.EncodeToPNG());
         }
         catch (Exception e)
         {
             PopupLogger.Log("Stitch failed: " + e.Message, true);
         }
 
-#if UNITY_ANDROID && !UNITY_EDITOR
-    string galleryDir = Path.Combine("/storage/emulated/0/Pictures/ARCameraDemo/");
-    if (!Directory.Exists(galleryDir)) Directory.CreateDirectory(galleryDir);
+    #if UNITY_ANDROID && !UNITY_EDITOR
+        string galleryDir = Path.Combine("/storage/emulated/0/Pictures/ARCameraDemo/");
+        if (!Directory.Exists(galleryDir)) Directory.CreateDirectory(galleryDir);
 
-    string finalName = Path.GetFileName(filePath);
-    string finalPath = Path.Combine(galleryDir, finalName);
+        string finalName = Path.GetFileName(filePath);
+        string finalPath = Path.Combine(galleryDir, finalName);
 
-    File.Copy(filePath, finalPath, true);
-    AndroidMediaScanner.ScanFile(finalPath);
-    NativeGallery.SaveImageToGallery(finalPath, "ARCameraDemo", finalName);
-#endif
+        File.Copy(filePath, finalPath, true);
+        AndroidMediaScanner.ScanFile(finalPath);
+        NativeGallery.SaveImageToGallery(finalPath, "ARCameraDemo", finalName);
+    #endif
 
         PopupLogger.Log("Stitched grid saved to gallery.");
     }
+
 
 
     Texture2D RotateTexture(Texture2D original, float angleDegrees)
