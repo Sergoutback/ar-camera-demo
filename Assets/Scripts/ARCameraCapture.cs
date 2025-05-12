@@ -1,5 +1,3 @@
-// ARCameraCapture.cs — fixed collage orientation and added gyro/location to metadata
-
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -12,6 +10,8 @@ using UnityEngine.XR.ARSubsystems;
 using Unity.Collections;
 using TMPro;
 using UnityEngine.SceneManagement;
+using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
 
 public class ARCameraCapture : MonoBehaviour
 {
@@ -236,6 +236,29 @@ public class ARCameraCapture : MonoBehaviour
         Vector3 relativeEuler = relativeGyro.eulerAngles;
         Vector3 currentPosition = cameraTransform.position;
         Vector3 relativePos = currentPosition - basePosition;
+        
+        Vector2 focalLength = Vector2.zero;
+        Vector2Int resolution = Vector2Int.zero;
+        Vector2 sensorSize = new Vector2(0.0048f, 0.0036f);
+        Vector2 principalPoint = Vector2.zero;
+        if (arCameraManager != null)
+        {
+            XRCameraIntrinsics intrinsics;
+            if (arCameraManager.TryGetIntrinsics(out intrinsics))
+            {
+                focalLength = intrinsics.focalLength;
+                resolution = intrinsics.resolution;
+                principalPoint = intrinsics.principalPoint;
+                // sensorSize manual or from ARFoundation
+                
+            }
+            else
+            {
+                focalLength = new Vector2(1000, 1000);
+                resolution = new Vector2Int(1920, 1080);
+                principalPoint = Vector2.zero;
+            }
+        }
 
         PhotoMetadata meta = new PhotoMetadata
         {
@@ -253,7 +276,11 @@ public class ARCameraCapture : MonoBehaviour
             relativePosition = relativePos,
             gyroEulerAngles = currentGyro.eulerAngles,
             latitude = currentLatitude,
-            longitude = currentLongitude
+            longitude = currentLongitude,
+            focalLength = focalLength,
+            sensorSize = sensorSize,
+            resolution = resolution,
+            principalPoint = principalPoint
         };
         sessionPhotos.Add(meta);
 

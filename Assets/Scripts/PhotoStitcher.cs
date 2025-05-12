@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
 using System.IO.Compression;
+using System.Collections;
 
 public class PhotoStitcher : MonoBehaviour
 {
@@ -23,7 +24,7 @@ public class PhotoStitcher : MonoBehaviour
         PopupLogger.Log($"RunStitchExternally → photos: {inputPhotos.Length}, meta: {inputMeta.Length}");
         photos = inputPhotos;
         photoDataList = new List<PhotoMetadata>(inputMeta);
-        StitchPhotos();
+        StartCoroutine(StitchPhotosCoroutine());
     }
 
     public void SetLogger(ARCameraCapture refARCameraCapture)
@@ -31,93 +32,126 @@ public class PhotoStitcher : MonoBehaviour
         aRCameraCapture = refARCameraCapture;
     }
 
-#if UNITY_EDITOR
-    [ContextMenu("Test Stitch From Inspector")]
-    public void TestStitchFromInspector()
+    private IEnumerator StitchPhotosCoroutine()
     {
-        if (jsonFile == null || photoTextures == null || photoTextures.Length == 0)
-        {
-            PopupLogger.Log("[PhotoStitcher] Assign both jsonFile and photoTextures[] in inspector.");
-            return;
-        }
+        if (!ValidateInput()) yield break;
 
-        var wrapper = JsonConvert.DeserializeObject<PhotoMetadataWrapper>(jsonFile.text);
-        photoDataList = new List<PhotoMetadata>(wrapper.Items);
-        photos = photoTextures;
-        StitchPhotos();
-    }
-#endif
+        int photoWidth = photos[0].width;
+        int photoHeight = photos[0].height;
+        int cols = 4;
+        int rows = 2;
+        int canvasWidth = photoWidth * cols;
+        int canvasHeight = photoHeight * rows;
 
-    void StitchPhotos()
-    {
-        string filePath = "";
+        Texture2D canvas = CreateCanvas(canvasWidth, canvasHeight);
+        Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
+        for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.black;
 
-        try
-        {
-            PopupLogger.Log($"[StitchPhotos] Start. photos: {photos?.Length}, meta: {photoDataList?.Count}");
+        yield return StartCoroutine(PlacePhotosOnCanvasCoroutine(photos, photoDataList, canvas, canvasPixels));
 
-            if (photos == null || photoDataList == null || photos.Length == 0 || photoDataList.Count == 0)
-            {
-                PopupLogger.Log("[PhotoStitcher] Nothing to stitch");
-                return;
-            }
+        canvas.SetPixels(canvasPixels);
+        canvas.Apply();
 
-            int photoWidth = photos[0].width;
-            int photoHeight = photos[0].height;
-            int cols = 4;
-            int rows = 2;
+        string filePath = SaveCanvasToFile(canvas, "StitchedGrid_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
+        PopupLogger.Log("Stitched grid saved to gallery.");
 
-            int canvasWidth = photoWidth * cols;
-            int canvasHeight = photoHeight * rows;
-
-            Texture2D canvas = new Texture2D(canvasWidth, canvasHeight, TextureFormat.RGBA32, false);
-            Color[] canvasPixels = new Color[canvasWidth * canvasHeight];
-            for (int i = 0; i < canvasPixels.Length; i++) canvasPixels[i] = Color.black;
-
-            for (int i = 0; i < photos.Length; i++)
-            {
-                if (i >= photoDataList.Count) continue;
-
-                Texture2D photo = photos[i];
-                Quaternion rot = Quaternion.Euler(photoDataList[i].relativeEulerAngles);
-                Texture2D rotated = Apply3DRotation(photo, rot);
-
-                int col = i % cols;
-                int row = i / cols;
-                int baseX = col * photoWidth;
-                int baseY = (rows - 1 - row) * photoHeight;
-
-                CopyPhotoToGrid(rotated, canvas, canvasPixels, baseX, baseY);
-            }
-
-            canvas.SetPixels(canvasPixels);
-            canvas.Apply();
-
-            filePath = Path.Combine(Application.persistentDataPath,
-                "StitchedGrid_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
-            byte[] pngData = canvas.EncodeToPNG();
-            File.WriteAllBytes(filePath, pngData);
-        }
-        catch (Exception e)
-        {
-            PopupLogger.Log("Stitch failed: " + e.Message, true);
-        }
+        Texture2D yCanvas = null;
+        string yFilePath = null;
+        yield return StartCoroutine(CreateYRelativeStitchCoroutine(photos, photoDataList, canvasWidth, photoHeight, (result, path) => {
+            yCanvas = result;
+            yFilePath = path;
+        }));
+        PopupLogger.Log("Y_Relative_Stitch saved to gallery.");
 
 #if UNITY_ANDROID && !UNITY_EDITOR
-    string galleryDir = Path.Combine("/storage/emulated/0/Pictures/ARCameraDemo/");
-    if (!Directory.Exists(galleryDir)) Directory.CreateDirectory(galleryDir);
-
-    string finalName = Path.GetFileName(filePath);
-    string finalPath = Path.Combine(galleryDir, finalName);
-
-    File.Copy(filePath, finalPath, true);
-    AndroidMediaScanner.ScanFile(finalPath);
-    NativeGallery.SaveImageToGallery(finalPath, "ARCameraDemo", finalName);
+        SaveToGalleryAndroid(filePath, yFilePath);
 #endif
-
-        PopupLogger.Log("Stitched grid saved to gallery.");
     }
 
+    private IEnumerator PlacePhotosOnCanvasCoroutine(Texture2D[] photos, List<PhotoMetadata> metaList, Texture2D canvas, Color[] canvasPixels)
+    {
+        int photoWidth = photos[0].width;
+        int photoHeight = photos[0].height;
+        int cols = 4;
+        int rows = 2;
+        for (int i = 0; i < photos.Length; i++)
+        {
+            if (i >= metaList.Count) continue;
+            int baseX = (i % cols) * photoWidth;
+            int baseY = (rows - 1 - i/cols) * photoHeight;
+            Texture2D photo = photos[i];
+            var meta = metaList[i];
+            Quaternion rot = Quaternion.Euler(meta.relativeEulerAngles);
+            Texture2D rotated = Apply3DRotation(photo, rot);
+            CopyPhotoToGrid(rotated, canvas, canvasPixels, baseX, baseY);
+            if (i % 2 == 0) yield return null;
+        }
+    }
+
+    private IEnumerator CreateYRelativeStitchCoroutine(Texture2D[] photos, List<PhotoMetadata> metaList, int canvasWidth, int photoHeight, Action<Texture2D, string> onComplete)
+    {
+        float worldMinY = float.MaxValue, worldMaxY = float.MinValue;
+        for (int j = 0; j < metaList.Count; j++)
+        {
+            float yVal = metaList[j].relativePosition.y;
+            worldMinY = Mathf.Min(worldMinY, yVal);
+            worldMaxY = Mathf.Max(worldMaxY, yVal);
+        }
+        float positionScale = this.positionScale;
+        float canvasHeightF = (worldMaxY - worldMinY) * positionScale + photoHeight;
+        int yCanvasWidth = canvasWidth;
+        int yCanvasHeight = Mathf.CeilToInt(canvasHeightF);
+        Texture2D yCanvas = new Texture2D(yCanvasWidth, yCanvasHeight, TextureFormat.RGBA32, false);
+        Color[] yCanvasPixels = new Color[yCanvasWidth * yCanvasHeight];
+        for (int k = 0; k < yCanvasPixels.Length; k++) yCanvasPixels[k] = Color.black;
+
+        float zScene = 0f;
+        for (int j = 0; j < metaList.Count; j++) zScene += Mathf.Abs(metaList[j].relativePosition.z);
+        zScene /= metaList.Count;
+
+        for (int i = 0; i < photos.Length; i++)
+        {
+            if (i >= metaList.Count) continue;
+            var meta = metaList[i];
+            Vector2 pp = meta.principalPoint;
+            float px = meta.focalLength.x * meta.relativePosition.x / zScene;
+            int baseX = Mathf.RoundToInt(pp.x + px);
+            int baseY = Mathf.RoundToInt((meta.relativePosition.y - worldMinY) * positionScale);
+            Texture2D photo = photos[i];
+            Quaternion rot = Quaternion.Euler(meta.relativeEulerAngles);
+            Texture2D rotated = Apply3DRotation(photo, rot);
+            CopyPhotoToGrid(rotated, yCanvas, yCanvasPixels, baseX, baseY);
+            if (i % 2 == 0) yield return null;
+        }
+        yCanvas.SetPixels(yCanvasPixels);
+        yCanvas.Apply();
+        string yFilePath = Path.Combine(Application.persistentDataPath, "Y_Relative_Stitch_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png");
+        File.WriteAllBytes(yFilePath, yCanvas.EncodeToPNG());
+        onComplete?.Invoke(yCanvas, yFilePath);
+    }
+
+    private bool ValidateInput()
+    {
+        if (photos == null || photoDataList == null || photos.Length == 0 || photoDataList.Count == 0)
+        {
+            PopupLogger.Log("[PhotoStitcher] Nothing to stitch");
+            return false;
+        }
+        return true;
+    }
+
+    private Texture2D CreateCanvas(int width, int height)
+    {
+        return new Texture2D(width, height, TextureFormat.RGBA32, false);
+    }
+
+    private string SaveCanvasToFile(Texture2D canvas, string filename)
+    {
+        string filePath = Path.Combine(Application.persistentDataPath, filename);
+        byte[] pngData = canvas.EncodeToPNG();
+        File.WriteAllBytes(filePath, pngData);
+        return filePath;
+    }
 
     Texture2D RotateTexture(Texture2D original, float angleDegrees)
     {
@@ -199,7 +233,6 @@ public class PhotoStitcher : MonoBehaviour
 
         return result;
     }
-
 
     Texture2D AlignPhotoPerspective(Texture2D source, float angle)
     {
@@ -354,7 +387,6 @@ public class PhotoStitcher : MonoBehaviour
         return totalDiff;
     }
 
-
     void CopyPhotoToGrid(Texture2D photo, Texture2D canvas, Color[] canvasPixels, int baseX, int baseY)
     {
         Color[] photoPixels = photo.GetPixels();
@@ -381,7 +413,8 @@ public class PhotoStitcher : MonoBehaviour
     /// Aligns the edges of two photos with a specified step (for example, every 50th pixel).
     /// edgeA и edgeB: "left", "right", "top", "bottom"
     /// </summary>
-    public static float CompareEdgesWithStep(Texture2D photoA, Texture2D photoB, string edgeA, string edgeB, int step = 50)
+    public static float CompareEdgesWithStep(Texture2D photoA, Texture2D photoB, string edgeA, string edgeB,
+        int step = 50)
     {
         int width = photoA.width;
         int height = photoA.height;
@@ -395,7 +428,8 @@ public class PhotoStitcher : MonoBehaviour
             {
                 Color colorA = (edgeA == "right") ? photoA.GetPixel(width - 1, y) : photoA.GetPixel(0, y);
                 Color colorB = (edgeB == "right") ? photoB.GetPixel(width - 1, y) : photoB.GetPixel(0, y);
-                totalDiff += Mathf.Abs(colorA.r - colorB.r) + Mathf.Abs(colorA.g - colorB.g) + Mathf.Abs(colorA.b - colorB.b);
+                totalDiff += Mathf.Abs(colorA.r - colorB.r) + Mathf.Abs(colorA.g - colorB.g) +
+                             Mathf.Abs(colorA.b - colorB.b);
                 count++;
             }
         }
@@ -406,7 +440,8 @@ public class PhotoStitcher : MonoBehaviour
             {
                 Color colorA = (edgeA == "top") ? photoA.GetPixel(x, height - 1) : photoA.GetPixel(x, 0);
                 Color colorB = (edgeB == "top") ? photoB.GetPixel(x, height - 1) : photoB.GetPixel(x, 0);
-                totalDiff += Mathf.Abs(colorA.r - colorB.r) + Mathf.Abs(colorA.g - colorB.g) + Mathf.Abs(colorA.b - colorB.b);
+                totalDiff += Mathf.Abs(colorA.r - colorB.r) + Mathf.Abs(colorA.g - colorB.g) +
+                             Mathf.Abs(colorA.b - colorB.b);
                 count++;
             }
         }
@@ -415,6 +450,7 @@ public class PhotoStitcher : MonoBehaviour
             Debug.LogWarning($"Edge combination {edgeA}-{edgeB} is not supported for comparison.");
             return -1f;
         }
+
         return (count > 0) ? totalDiff / count : -1f;
     }
 
@@ -428,31 +464,50 @@ public class PhotoStitcher : MonoBehaviour
         {
             edgeTex = new Texture2D(thickness, height, source.format, false);
             for (int x = 0; x < thickness; x++)
-                for (int y = 0; y < height; y++)
-                    edgeTex.SetPixel(x, y, source.GetPixel(x, y));
+            for (int y = 0; y < height; y++)
+                edgeTex.SetPixel(x, y, source.GetPixel(x, y));
         }
         else if (edge == "right")
         {
             edgeTex = new Texture2D(thickness, height, source.format, false);
             for (int x = 0; x < thickness; x++)
-                for (int y = 0; y < height; y++)
-                    edgeTex.SetPixel(x, y, source.GetPixel(width - thickness + x, y));
+            for (int y = 0; y < height; y++)
+                edgeTex.SetPixel(x, y, source.GetPixel(width - thickness + x, y));
         }
         else if (edge == "top")
         {
             edgeTex = new Texture2D(width, thickness, source.format, false);
             for (int x = 0; x < width; x++)
-                for (int y = 0; y < thickness; y++)
-                    edgeTex.SetPixel(x, y, source.GetPixel(x, height - thickness + y));
+            for (int y = 0; y < thickness; y++)
+                edgeTex.SetPixel(x, y, source.GetPixel(x, height - thickness + y));
         }
         else if (edge == "bottom")
         {
             edgeTex = new Texture2D(width, thickness, source.format, false);
             for (int x = 0; x < width; x++)
-                for (int y = 0; y < thickness; y++)
-                    edgeTex.SetPixel(x, y, source.GetPixel(x, y));
+            for (int y = 0; y < thickness; y++)
+                edgeTex.SetPixel(x, y, source.GetPixel(x, y));
         }
+
         edgeTex.Apply();
         return edgeTex;
     }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    private void SaveToGalleryAndroid(string filePath, string yFilePath)
+    {
+        string galleryDir = Path.Combine("/storage/emulated/0/Pictures/ARCameraDemo/");
+        if (!Directory.Exists(galleryDir)) Directory.CreateDirectory(galleryDir);
+        string finalName = Path.GetFileName(filePath);
+        string finalPath = Path.Combine(galleryDir, finalName);
+        File.Copy(filePath, finalPath, true);
+        AndroidMediaScanner.ScanFile(finalPath);
+        NativeGallery.SaveImageToGallery(finalPath, "ARCameraDemo", finalName);
+        string yFinalName = Path.GetFileName(yFilePath);
+        string yFinalPath = Path.Combine(galleryDir, yFinalName);
+        File.Copy(yFilePath, yFinalPath, true);
+        AndroidMediaScanner.ScanFile(yFinalPath);
+        NativeGallery.SaveImageToGallery(yFinalPath, "ARCameraDemo", yFinalName);
+    }
+#endif
 }

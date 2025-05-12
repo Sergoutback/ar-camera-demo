@@ -21,4 +21,8 @@ public class PhotoMetadata
 
     public float latitude;
     public float longitude;
+    public Vector2 focalLength;
+    public Vector2 sensorSize;
+    public Vector2Int resolution;
+    public Vector2 principalPoint;
 }
